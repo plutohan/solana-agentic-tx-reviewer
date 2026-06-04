@@ -1,0 +1,10 @@
+{
+  "permissions": {
+    "allow": [
+      "WebSearch",
+      "WebFetch(domain:superteam.fun)",
+      "WebFetch(domain:www.langchain.com)",
+      "WebFetch(domain:solanacompass.com)"
+    ]
+  }
+}
