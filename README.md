@@ -4,9 +4,15 @@ A lightweight, AI-assisted, **read-only** tool for understanding Solana transact
 
 It is built for Solana users and developers who want to **sanity-check a transaction before or after signing** — to catch wallet drains, surprise delegate approvals, authority handovers, and interactions with unrecognized programs, and to debug what a transaction actually did.
 
-> **Read-only — nothing is ever signed or sent.** This tool only calls `getParsedTransaction` against an RPC endpoint. It holds no keys, never constructs or submits transactions, and never asks for a wallet connection. The only thing it can do is *read* and *explain* a transaction that already exists on-chain.
+> **Read-only — nothing is ever signed or sent.** This tool only reads a transaction that already exists on-chain. It holds no keys, never constructs or submits transactions, and never asks for a wallet connection. The only thing it can do is *read* and *explain*.
 
-This is a deliberately small proof-of-concept built for the **Superteam Agentic Engineering Grant**. There is no new on-chain protocol, no signing, and no persistence — just an explainable analysis pipeline that a real agent could plug into.
+> **Built with agents.** This project was scaffolded, documented, and adversarially reviewed by a multi-agent workflow: agents brought the toolchain current (Node 24, Rust 1.96, Agave 4.0.1, Anchor 1.0.2), a research-agent discovery pass confirmed the program IDs, and the heuristics were de-risked agent-by-agent against routine swaps and real drains.
+
+This is a deliberately small proof-of-concept built for the **Superteam Agentic Engineering micro-grant** (~200 USDG, Solana Earn). There is no new on-chain protocol, no signing, and no persistence — just an explainable analysis pipeline that a real agent could plug into.
+
+### Why this matters for Solana's agentic future
+
+Frame the reviewer as **the explainable safety-review step in the agent loop**: an agent proposes a transaction, the reviewer judges it (**parse → heuristics → explanation**), and a human or agent approves. As autonomous agents start moving value on Solana, a deterministic, auditable "second opinion" between *proposed* and *signed* is exactly the missing primitive — and it is the headline reason this PoC is built the way it is.
 
 ---
 
@@ -19,21 +25,26 @@ This is a deliberately small proof-of-concept built for the **Superteam Agentic 
   - **top-level and inner (CPI) instructions** flattened into one ordered list, each tagged with its program and parsed instruction type,
   - **SPL token balance changes** computed from `pre`/`postTokenBalances` (before, after, and delta per token account),
   - **aggregated program invocations** with friendly names and call counts.
-- **Deterministic risk report** ([`src/lib/heuristics.ts`](src/lib/heuristics.ts)) — pure, explainable rules that surface drains, authority changes, delegate approvals, unknown programs, large outflows, and more, each with a level, a human-readable detail, and supporting evidence.
-- **Placeholder AI explanation** ([`src/lib/ai.ts`](src/lib/ai.ts)) — a deterministic, template-based natural-language summary so the PoC runs with **zero API keys and zero cost**. The seam for a real LLM (OpenAI / Anthropic) is fully defined and ready to connect.
+- **Deterministic risk report** ([`src/lib/heuristics.ts`](src/lib/heuristics.ts)) — pure, explainable rules (now **18** of them) that surface drains, authority changes, delegate approvals, unknown programs, large outflows, and more, each with a level, a human-readable detail, and supporting evidence.
+- **Swap-aware, signer-scoped heuristics** — drain/outflow rules fire **only on signer-owned token accounts** (pool/vault PDAs that routinely zero out during swaps are ignored), wrapped SOL is excluded from token rules, and a new `TOKEN_SWAP` rule defensively relabels a would-be drain when the **same signer received value back through a known DEX**. This kills the biggest false positive (a routine Jupiter swap previously read HIGH).
+- **Known-address watchlist** ([`src/lib/watchlist.ts`](src/lib/watchlist.ts)) — a curated, best-effort, non-exhaustive list that raises a `FLAGGED_ADDRESS` finding (seeded honestly with the SOL burn/incinerator address; flagged program IDs are empty by default to avoid false accusations).
+- **De-saturated scoring** — `assessRisk` dedups same-id findings and applies **diminishing returns** per level so a routine swap reads LOW while a real, stacked drainer stays HIGH.
+- **Real dual-provider LLM behind the seam** ([`src/lib/ai.ts`](src/lib/ai.ts)) — the explanation layer genuinely calls **Anthropic or OpenAI** when a key is configured (Anthropic uses prompt caching on the system prompt), with a **free deterministic placeholder default** and graceful fallback on *any* error (missing key, network, rate limit, bad JSON).
+- **Shareable permalink** ([`src/app/tx/[signature]/page.tsx`](src/app/tx/%5Bsignature%5D/page.tsx)) — `GET /tx/<signature>?cluster=...` server-renders the full review pipeline, and a Next 16 [`ImageResponse`](src/app/tx/%5Bsignature%5D/opengraph-image.tsx) OG card (risk level + score + short signature) makes a pasted link unfurl into a risk preview.
+- **`npm test` regression suite** ([`tests/heuristics.test.ts`](tests/heuristics.test.ts)) — 10 deterministic checks proving swaps stay LOW, real drains stay HIGH, pool/WSOL noise is filtered, and the watchlist fires.
 - **Cluster + custom RPC support** — switch between `mainnet-beta`, `devnet`, and `testnet`, and optionally supply your own Helius / QuickNode / Triton endpoint to avoid public-RPC rate limits.
 
 ---
 
 ## Architecture
 
-The pipeline is a single linear flow. The client posts a signature to one API route, which runs the four library stages in order and returns a `ReviewResult`.
+The pipeline is a single linear flow. The client posts a signature to one API route (or hits the `/tx/<sig>` permalink), which runs the four library stages in order and returns a `ReviewResult`.
 
 ```
                          ┌─────────────────────────────────────────────────────┐
    Browser UI            │                  Next.js (Node runtime)              │
  ┌───────────────┐       │                                                      │
- │  page.tsx     │  POST │  app/api/review/route.ts                             │
+ │  page.tsx     │  POST │  app/api/review/route.ts   (and /tx/[sig] permalink) │
  │  signature ───┼──────►│        │                                             │
  │  cluster      │ /api/ │        ▼                                             │
  │  custom RPC   │review │  lib/review.ts  reviewTransaction(request)           │
@@ -46,10 +57,10 @@ The pipeline is a single linear flow. The client posts a signature to one API ro
          │               │        │      (SOL deltas, token changes, CPIs)      │
          │               │        ▼                                             │
          │               │   ③ risk  ──► lib/heuristics.ts  RiskReport          │
-         │               │        │      (deterministic rules → score + level)  │
+         │               │        │      (18 rules → deduped, de-saturated)     │
          │               │        ▼                                             │
          │               │   ④ explain ► lib/ai.ts        AiExplanation         │
-         │               │        │      (placeholder template; LLM-ready)      │
+         │               │        │      (placeholder OR real Anthropic/OpenAI) │
          │               │        ▼                                             │
          └───────────────┼─── ReviewResult ─────────────────────────────────────┘
    components/                 { request, transaction, risk, explanation }
@@ -62,31 +73,34 @@ The pipeline is a single linear flow. The client posts a signature to one API ro
 | Stage | File | Responsibility |
 | --- | --- | --- |
 | Contract | [`src/lib/types.ts`](src/lib/types.ts) | Shared data model every stage speaks: `ReviewRequest`, `ParsedTransaction`, `RiskReport`, `AiExplanation`, `ReviewResult`, and supporting types. |
-| ① Fetch | [`src/lib/solana.ts`](src/lib/solana.ts) | `getConnection`, `resolveRpcUrl`, `isValidSignature`, `fetchParsedTransaction`. |
+| ① Fetch | [`src/lib/solana.ts`](src/lib/solana.ts) | `getConnection`, `resolveRpcUrl`, `assertSafeRpcUrl`, `isValidSignature`, `fetchParsedTransaction`. |
 | ② Parse | [`src/lib/parse.ts`](src/lib/parse.ts) | `parseTransaction(raw, signature, cluster)` → `ParsedTransaction`. |
-| ③ Risk | [`src/lib/heuristics.ts`](src/lib/heuristics.ts) | `assessRisk(tx)` → `RiskReport`. |
-| ④ Explain | [`src/lib/ai.ts`](src/lib/ai.ts) | `explainTransaction(tx, risk)` + `buildPrompt(tx, risk)`. |
+| ③ Risk | [`src/lib/heuristics.ts`](src/lib/heuristics.ts) | `assessRisk(tx)` → `RiskReport` (dedupe + diminishing-returns scoring). |
+| ④ Explain | [`src/lib/ai.ts`](src/lib/ai.ts) | `explainTransaction(tx, risk)` + `buildPrompt(tx, risk)` (real LLM or placeholder). |
 | Orchestrator | [`src/lib/review.ts`](src/lib/review.ts) | `reviewTransaction(request)` chains all four stages; throws `ReviewError(status)`. |
-| Support | [`src/lib/programs.ts`](src/lib/programs.ts) | Registry of known program IDs → `{ name, category }`; `resolveProgram`, `isKnownProgram`. |
+| Support | [`src/lib/programs.ts`](src/lib/programs.ts) | Registry of known program IDs → `{ name, category }`; `resolveProgram`, `isKnownProgram`, `isDexProgram`, `DEX_PROGRAM_IDS`, `WSOL_MINT`. |
+| Support | [`src/lib/watchlist.ts`](src/lib/watchlist.ts) | Curated flagged-address/program list; `lookupWatch(address)`. |
 | Support | [`src/lib/format.ts`](src/lib/format.ts) | `lamportsToSol`, `formatSol`, `shortPubkey`, `formatTokenAmount`, `isLikelyPubkey`. |
 | API | [`src/app/api/review/route.ts`](src/app/api/review/route.ts) | `POST /api/review` (Node.js runtime). |
+| Permalink | [`src/app/tx/[signature]/page.tsx`](src/app/tx/%5Bsignature%5D/page.tsx), [`opengraph-image.tsx`](src/app/tx/%5Bsignature%5D/opengraph-image.tsx) | Server-rendered `/tx/<sig>` review + dynamic OG card. |
 | UI | [`src/app/page.tsx`](src/app/page.tsx), [`src/components/ResultView.tsx`](src/components/ResultView.tsx), [`src/components/RiskBadge.tsx`](src/components/RiskBadge.tsx) | Client form + presentational rendering of the result. |
 
 ---
 
 ## Tech stack
 
-Every part of the toolchain was brought current as part of this project.
+Every part of the toolchain was brought current as part of this project (updated by the agent workflow).
 
 | Tool | Version | Notes |
 | --- | --- | --- |
-| Node.js | **24.16.0 LTS** | Runtime; the API route runs on the Node.js runtime. |
+| Node.js | **24.16.0 LTS** | Runtime; the API route and permalink run on the Node.js runtime. |
 | npm | **11.16.0** | Package manager. |
-| Next.js | **16.2.7** | App Router. |
+| Next.js | **16.2.7** | App Router; `next/og` `ImageResponse` for the OG card. |
 | React | **19.2.7** | + `react-dom` 19.2.7. |
 | TypeScript | **6.0.3** | Strict shared types across server and UI. |
 | Tailwind CSS | **4.3.0** | CSS-first config — `@import "tailwindcss"` in `globals.css` plus `@tailwindcss/postcss`. **No `tailwind.config.js`.** |
 | @solana/web3.js | **1.98.4** | The v1 line. (v2 lives on as `@solana/kit` 6.x — noted under [Roadmap](#roadmap) as a future option.) |
+| tsx | **4.x** (dev) | Runs the TypeScript regression tests for `npm test`. |
 
 The broader Solana development environment on the build machine is also current — **Rust 1.96.0, Agave / Solana CLI 4.0.1, Anchor 1.0.2** — but none of these are used by this read-only web app. They are listed only to document that the environment was brought up to date.
 
@@ -115,11 +129,18 @@ cp .env.example .env.local
 
 # 3. Start the dev server
 npm run dev
+
+# 4. (Optional) run the deterministic risk regression suite
+npm test
 ```
 
 Then open **http://localhost:3000**.
 
-Other scripts: `npm run build`, `npm run start`, `npm run lint`, `npm run typecheck`.
+Other scripts: `npm run build`, `npm run start`, `npm run lint`, `npm run typecheck`, and `npm test` (runs [`tests/heuristics.test.ts`](tests/heuristics.test.ts) via `tsx` — 10 checks, all passing).
+
+### Permalink
+
+Any review has a shareable, server-rendered URL: **`/tx/<signature>?cluster=mainnet-beta`** (the `cluster` query is optional and defaults to `mainnet-beta`; `devnet` / `testnet` are also accepted). It reuses the exact same `reviewTransaction` pipeline and `ResultView` — no new risk logic — and a dynamic Open Graph card makes a pasted link unfurl into a risk preview (level + score + short signature). After any review, the home page also shows an **"Open shareable permalink"** link. Set `NEXT_PUBLIC_SITE_URL` so the OG card resolves to an absolute URL in production (it falls back to `http://localhost:3000` for local dev via `metadataBase` in [`src/app/layout.tsx`](src/app/layout.tsx)).
 
 ### A note on the public RPC
 
@@ -139,9 +160,10 @@ RPC precedence is: explicit per-request `rpcUrl` → `SOLANA_RPC_URL` (mainnet o
 3. *(Optional)* click **+ custom RPC** and paste your own endpoint to avoid public-RPC rate limits.
 4. Click **Review** and read the result:
    - **Overview** — success/failure, slot, block time, fee, compute units, fee payer, signer and writable counts.
-   - **AI Explanation** — a plain-English narrative plus key-action bullets and caveats (provider badge shows `placeholder` today).
+   - **AI Explanation** — a plain-English narrative plus key-action bullets and caveats. The provider badge shows `placeholder` by default, or `anthropic` / `openai` once a key is configured (see [The AI layer](#the-ai-layer)).
    - **Risk Report** — overall level + score out of 100, a summary line, and each finding with its detail and evidence.
    - **Programs**, **Token Balance Changes**, **Instructions** (CPIs indented), **Accounts** (with SOL deltas and roles), and collapsible raw **Program Logs**.
+5. *(Optional)* click **Open shareable permalink** to get a `/tx/<sig>` URL you can paste anywhere — it unfurls into a risk-preview card.
 
 **Where to get a signature:** copy one from a block explorer such as [Solscan](https://solscan.io) or [Solana Explorer](https://explorer.solana.com), or from your wallet's transaction history.
 
@@ -156,21 +178,28 @@ solana-agentic-tx-reviewer/
 │  │  ├─ api/
 │  │  │  └─ review/
 │  │  │     └─ route.ts        # POST /api/review (Node.js runtime)
+│  │  ├─ tx/
+│  │  │  └─ [signature]/
+│  │  │     ├─ page.tsx        # GET /tx/<sig> server-rendered review (permalink)
+│  │  │     └─ opengraph-image.tsx  # dynamic OG card (risk level + score)
 │  │  ├─ globals.css           # Tailwind v4 entry (@import "tailwindcss")
-│  │  ├─ layout.tsx
-│  │  └─ page.tsx              # Client UI: signature input, cluster, custom RPC
+│  │  ├─ layout.tsx            # metadataBase from NEXT_PUBLIC_SITE_URL
+│  │  └─ page.tsx              # Client UI: signature input, cluster, custom RPC, permalink link
 │  ├─ components/
 │  │  ├─ ResultView.tsx        # Renders overview, explanation, risk, accounts…
 │  │  └─ RiskBadge.tsx         # Level → colored badge
 │  └─ lib/
 │     ├─ types.ts              # Shared data model (the contract)
-│     ├─ programs.ts           # Known program registry + resolveProgram/isKnownProgram
+│     ├─ programs.ts           # Known program registry + DEX set + isDexProgram + WSOL_MINT
+│     ├─ watchlist.ts          # Curated flagged-address/program list + lookupWatch
 │     ├─ format.ts             # lamportsToSol, formatSol, shortPubkey, …
-│     ├─ solana.ts             # RPC access (read-only getParsedTransaction)
+│     ├─ solana.ts             # RPC access (read-only) + assertSafeRpcUrl SSRF guard
 │     ├─ parse.ts              # parseTransaction → ParsedTransaction
-│     ├─ heuristics.ts         # assessRisk → RiskReport
-│     ├─ ai.ts                 # explainTransaction + buildPrompt (LLM-ready)
+│     ├─ heuristics.ts         # assessRisk → RiskReport (18 rules)
+│     ├─ ai.ts                 # explainTransaction + buildPrompt (real LLM or placeholder)
 │     └─ review.ts             # reviewTransaction orchestrator + ReviewError
+├─ tests/
+│  └─ heuristics.test.ts       # npm test — 10 deterministic regression checks (tsx)
 ├─ .env.example
 ├─ next.config.mjs
 ├─ postcss.config.mjs          # @tailwindcss/postcss
@@ -182,12 +211,12 @@ solana-agentic-tx-reviewer/
 
 ## Risk heuristics
 
-`assessRisk(tx)` runs a fixed set of pure rules over the parsed transaction. Each rule emits zero or more **findings**; the report aggregates them.
+`assessRisk(tx)` runs a fixed set of **18** pure rules over the parsed transaction. Each rule emits zero or more **findings**; the report dedups same-id findings (merging evidence, tagging `×N`) and aggregates them.
 
 **Scoring & level**
 
-- `LEVEL_WEIGHT`: `info = 0`, `low = 10`, `medium = 25`, `high = 45`.
-- **Score** = the sum of all finding weights, clamped to `0–100`.
+- `LEVEL_WEIGHT`: `info = 0`, `low = 10`, `medium = 25`, `high = 45` (unchanged).
+- **Score** = a weighted sum with **diminishing returns** — the *k*-th finding at a given level contributes `weight × 0.5^k` — then clamped to `0–100`. This de-saturates busy-but-benign transactions (a routine swap reads LOW) while keeping real, stacked high-severity signals near the top.
 - **Overall level** = the **maximum** individual finding level (not the sum).
 
 **Thresholds** (`THRESHOLDS`)
@@ -205,10 +234,12 @@ solana-agentic-tx-reviewer/
 | ID | Level | Trigger |
 | --- | --- | --- |
 | `TX_FAILED` | info | `meta.err != null` (transaction failed on-chain) |
+| `FLAGGED_ADDRESS` | medium (burn) / high (other) | An account or program matches the curated watchlist ([`src/lib/watchlist.ts`](src/lib/watchlist.ts)) |
 | `UNKNOWN_PROGRAM` | medium | Invokes a program not in the registry |
 | `LARGE_SOL_OUTFLOW` | medium (≥ 1 SOL) / high (≥ 10 SOL) | Fee payer's net SOL decrease |
-| `FULL_TOKEN_ACCOUNT_DRAIN` | high | A token account goes from pre > 0 to post == 0 |
-| `LARGE_TOKEN_OUTFLOW` | low (≥ 50% of balance) / medium (≥ 90%) | Partial token-account decrease |
+| `TOKEN_SWAP` | low | A would-be full-drain / large-outflow where the **same signer** received value back (token inflow > 1 base unit, or net SOL) **and** a known DEX program is present |
+| `FULL_TOKEN_ACCOUNT_DRAIN` | high | A **signer-owned** token account goes from pre > 0 to post == 0 (pool/vault PDAs and WSOL excluded) |
+| `LARGE_TOKEN_OUTFLOW` | low (≥ 50% of balance) / medium (≥ 90%) | Partial decrease of a **signer-owned** token account |
 | `SET_AUTHORITY` | high | spl-token `setAuthority` |
 | `ACCOUNT_REASSIGN` | medium | system `assign` |
 | `TOKEN_DELEGATE_APPROVE` | medium | spl-token `approve` / `approveChecked` |
@@ -221,18 +252,22 @@ solana-agentic-tx-reviewer/
 | `COMPUTE_BUDGET_SET` | info | Compute Budget program used |
 | `MEMO_PRESENT` | info | Memo program used |
 
+**Swap-aware, signer-scoped tuning.** Drain/outflow rules fire **only on signer-owned token accounts** — pool/vault accounts owned by program PDAs routinely zero out during swaps and are ignored (this killed the biggest false positive, where a routine Jupiter swap previously read HIGH "fully drained" off a pool account). Wrapped SOL (`So111…112`) is excluded from token rules because it is transient and the native SOL rules already cover it. When a known DEX is present and the same signer received non-dust value back, the engine *relabels* the finding as `TOKEN_SWAP` (low) rather than clearing it; an undefined owner or a dusted inflow fails safe to the higher-risk drain finding. Confirmed program IDs registered in [`src/lib/programs.ts`](src/lib/programs.ts) include PumpSwap AMM, pump.fun (bonding curve + Fee), Raydium AMM v4 / CLMM / CPMM, Orca Whirlpools, Meteora DLMM / DAMM v2, Phoenix, Lifinity v2, Jupiter v4 / v6, and Jito Tip; the swap-recognition subset is exposed as `DEX_PROGRAM_IDS` / `isDexProgram()`.
+
 These are **explainable signals, not a verdict.** They are designed to surface the patterns a careful reviewer would look for — they do not prove intent, and an `info`/`low` result does not mean a transaction is safe.
 
 ---
 
 ## The AI layer
 
-Today, `explainTransaction(tx, risk)` returns a **deterministic, template-based** explanation with `provider: "placeholder"`. It composes a plain-English summary, key-action bullets (top SOL moves and token changes), and standing caveats directly from the parsed data and the risk report — so the PoC always works, with no keys and no cost.
+`explainTransaction(tx, risk)` produces the natural-language explanation (`summary`, `bullets`, `caveats`, plus `provider` / `model` / `generatedAt`). It runs in one of two modes:
 
-The seam for a real model is already in place:
+- **Free deterministic placeholder (default).** With no provider or key configured, it composes a plain-English summary, key-action bullets (top SOL moves and token changes), and standing caveats directly from the parsed data and the risk report — so the PoC always works, with **zero keys and zero cost**, returning `provider: "placeholder"`.
+- **Real LLM (when configured).** Set `AI_PROVIDER=anthropic|openai` plus the matching API key and `explainTransaction()` genuinely calls the provider behind the existing seam. It builds the grounded context with `buildPrompt(tx, risk)`, asks for strict JSON, parses it, and returns a real `AiExplanation`. The Anthropic path uses **prompt caching** on the static system prompt (5-minute TTL). This is what substantiates the "agentic" claim — and on **any** error (missing key, network, rate limit, bad JSON) it degrades gracefully back to the placeholder, so the app never breaks.
 
-- **`buildPrompt(tx, risk)`** — a pure, exported function that returns the exact context string a real LLM would receive (signature, cluster, fee, signers, programs, token balance changes, instruction types, and the deterministic risk findings). It instructs the model to use only the provided facts and never invent addresses, amounts, or intent.
-- **The provider switch in `explainTransaction()`** — reads the provider from `options.provider` → `process.env.AI_PROVIDER` → `"placeholder"`. The `openai` / `anthropic` branch marks exactly where the SDK call slots in; until a key is configured it deliberately falls through to the placeholder so the app never breaks.
+```
+options.provider  →  process.env.AI_PROVIDER  →  "placeholder"
+```
 
 ### Connecting a real LLM
 
@@ -241,10 +276,12 @@ The seam for a real model is already in place:
    ```bash
    AI_PROVIDER=anthropic        # or "openai"
    ANTHROPIC_API_KEY=sk-ant-...
+   # ANTHROPIC_MODEL=claude-haiku-4-5-20251001   # optional override
    # OPENAI_API_KEY=sk-...
+   # OPENAI_MODEL=gpt-4o-mini                     # optional override
    ```
 
-2. In [`src/lib/ai.ts`](src/lib/ai.ts), fill in the `openai` / `anthropic` branch of `explainTransaction()`: call `buildPrompt(tx, risk)`, send it to the provider's SDK, and return an `AiExplanation` (`summary`, `bullets`, `caveats`, `model`, `generatedAt`). No other code changes are required — every downstream consumer already speaks the `AiExplanation` shape.
+2. Restart the dev server. That's it — there is **no code change to make**: the provider call (`callAnthropic` / `callOpenAI` in [`src/lib/ai.ts`](src/lib/ai.ts)) is already wired, and every downstream consumer already speaks the `AiExplanation` shape.
 
 Because the prompt is grounded entirely in deterministically parsed on-chain facts, the LLM is used to *narrate and prioritize* — not to source data — which keeps explanations faithful to what actually happened.
 
@@ -252,18 +289,21 @@ Because the prompt is grounded entirely in deterministically parsed on-chain fac
 
 ## Roadmap
 
-- Wire a real LLM behind `AI_PROVIDER` (the hook is already in place).
-- Expand the known-program registry in [`src/lib/programs.ts`](src/lib/programs.ts) and add per-program instruction decoding.
+- **Pre-sign simulation (headline next milestone).** Let an agent or user review an **unsigned** transaction *before* approving it. The recipe is de-risked: accept a base64 unsigned `VersionedTransaction`, call `simulateTransaction({ sigVerify: false, replaceRecentBlockhash: true, innerInstructions: true, accounts: { encoding: "base64", addresses } })`, derive account deltas via `getMultipleAccountsInfo`, then reuse the same **parse → risk → explain** pipeline. This closes the agent loop: *propose → review → approve* on a transaction that does not yet exist on-chain.
+- Expand the known-program registry and watchlist (from citable public sources only) and add per-program instruction decoding.
 - Evaluate migrating from `@solana/web3.js` 1.x to **`@solana/kit` 6.x** (the v2 line).
-- Optional persistence / shareable review links.
+- Optional persistence for permalinks (today `/tx/<sig>` re-derives the review on each request).
 - Tighten the per-request `rpcUrl` guard to a positive host allowlist for production (a baseline SSRF guard already ships — see Disclaimers).
+
+> The real-LLM hook is **done**, not a roadmap item — see [The AI layer](#the-ai-layer).
 
 ---
 
 ## Disclaimers
 
 - **Not financial, investment, or security advice.** This tool helps you *read* a transaction; it does not certify that one is safe. Heuristics are best-effort **signals**, not guarantees — always verify on a trusted block explorer before acting.
-- **Proof of concept.** No persistence, no real LLM (the explanation is a deterministic placeholder), and a small curated program registry.
+- **Watchlist is best-effort and non-exhaustive.** The flagged-address list ([`src/lib/watchlist.ts`](src/lib/watchlist.ts)) is curated by hand from public sources and is seeded conservatively (the SOL burn address; no flagged programs by default). A *miss* does not mean an address is safe, and entries should only be added with a citable source.
+- **Proof of concept.** No persistence and a small curated program registry. A real LLM is wired in but **off by default** (the explanation is a free deterministic placeholder until you set `AI_PROVIDER` + a key).
 - **Read-only by design.** The app only fetches and analyzes existing transactions. It holds no keys and never signs or sends anything.
 - **RPC passthrough.** The server can fetch a client-supplied `rpcUrl`, guarded by `assertSafeRpcUrl()` which requires `http(s)` and blocks loopback / private / link-local (cloud-metadata) hosts. A positive host allowlist is still recommended before any public deployment.
 - **Public RPC limits.** The default mainnet endpoint rate-limits and prunes history; use a dedicated RPC for dependable results.
@@ -272,6 +312,6 @@ Because the prompt is grounded entirely in deterministically parsed on-chain fac
 
 ## License & contact
 
-Built for the **Superteam Agentic Engineering Grant** (~200 USDG).
+Built for the **Superteam Agentic Engineering micro-grant** (~200 USDG, Solana Earn).
 
-<!-- CONTACT / LINKS PLACEHOLDER — add repository URL, license, and maintainer contact here. -->
+<!-- CONTACT / LINKS PLACEHOLDER — add repository URL, license, maintainer contact, and grant wallet here. -->
