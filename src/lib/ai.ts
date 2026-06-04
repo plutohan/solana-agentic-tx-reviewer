@@ -47,6 +47,20 @@ export function buildPrompt(tx: ParsedTransaction, risk: RiskReport): string {
  * Main entry point. Returns a placeholder explanation unless a real provider is
  * configured (and even then, falls back to the placeholder if no key is set).
  */
+const SYSTEM_PROMPT =
+  "You are a Solana transaction security reviewer. Given structured facts about a " +
+  "transaction, explain in plain English what it did, then summarize its risk for a " +
+  "non-expert. Use ONLY the provided facts — never invent addresses, amounts, or intent. " +
+  "Be concise and concrete. Respond with strict minified JSON only.";
+
+const STANDARD_CAVEAT =
+  "Risk heuristics are best-effort signals, not a security guarantee or financial advice. Always verify on a trusted block explorer before acting.";
+
+/**
+ * Main entry point. Calls a real LLM only when AI_PROVIDER + a matching API key
+ * are configured; otherwise (and on ANY error) returns the deterministic
+ * placeholder so the app always works and stays free by default.
+ */
 export async function explainTransaction(
   tx: ParsedTransaction,
   risk: RiskReport,
@@ -57,19 +71,125 @@ export async function explainTransaction(
     (process.env.AI_PROVIDER as AiExplanation["provider"]) ??
     "placeholder";
 
-  if (provider === "openai" || provider === "anthropic") {
-    // --- Real LLM integration goes here (intentionally not wired in the PoC) ---
-    //
-    //   const prompt = buildPrompt(tx, risk);
-    //   const text = await callProvider(provider, prompt); // OpenAI/Anthropic SDK
-    //   return { provider, model, summary: text, bullets: [...], caveats: [...],
-    //            generatedAt: new Date().toISOString() };
-    //
-    // Until a key is configured we deliberately fall through to the deterministic
-    // explanation so the app always works.
+  if (provider === "anthropic" || provider === "openai") {
+    try {
+      const llm = await callLlm(provider, tx, risk);
+      if (llm) return llm;
+    } catch {
+      // Any failure (missing key, network, rate limit, bad JSON) degrades to placeholder.
+    }
   }
 
   return placeholderExplanation(tx, risk);
+}
+
+async function callLlm(
+  provider: "anthropic" | "openai",
+  tx: ParsedTransaction,
+  risk: RiskReport,
+): Promise<AiExplanation | null> {
+  const user =
+    buildPrompt(tx, risk) +
+    '\n\nRespond ONLY with minified JSON of the form ' +
+    '{"summary": string, "bullets": string[], "caveats": string[]}.';
+
+  const raw =
+    provider === "anthropic"
+      ? await callAnthropic(SYSTEM_PROMPT, user)
+      : await callOpenAI(SYSTEM_PROMPT, user);
+  if (!raw) return null;
+
+  const parsed = parseJsonObject(raw.text);
+  if (!parsed || typeof parsed.summary !== "string" || !parsed.summary.trim()) {
+    return null;
+  }
+
+  const strings = (v: unknown): string[] =>
+    Array.isArray(v) ? v.filter((x): x is string => typeof x === "string") : [];
+
+  return {
+    provider,
+    model: raw.model,
+    summary: parsed.summary,
+    bullets: strings(parsed.bullets).slice(0, 12),
+    caveats: [...strings(parsed.caveats), STANDARD_CAVEAT],
+    generatedAt: new Date().toISOString(),
+  };
+}
+
+async function callAnthropic(
+  system: string,
+  user: string,
+): Promise<{ text: string; model: string } | null> {
+  const key = process.env.ANTHROPIC_API_KEY;
+  if (!key) return null;
+  const model = process.env.ANTHROPIC_MODEL ?? "claude-haiku-4-5-20251001";
+  const res = await fetch("https://api.anthropic.com/v1/messages", {
+    method: "POST",
+    headers: {
+      "content-type": "application/json",
+      "x-api-key": key,
+      "anthropic-version": "2023-06-01",
+    },
+    body: JSON.stringify({
+      model,
+      max_tokens: 800,
+      temperature: 0.2,
+      // Cache the static system prompt across requests (5-min TTL).
+      system: [{ type: "text", text: system, cache_control: { type: "ephemeral" } }],
+      messages: [{ role: "user", content: user }],
+    }),
+  });
+  if (!res.ok) throw new Error(`Anthropic ${res.status}: ${await res.text()}`);
+  const data = await res.json();
+  const text = (data.content ?? [])
+    .filter((b: { type: string }) => b.type === "text")
+    .map((b: { text: string }) => b.text)
+    .join("");
+  return { text, model: data.model ?? model };
+}
+
+async function callOpenAI(
+  system: string,
+  user: string,
+): Promise<{ text: string; model: string } | null> {
+  const key = process.env.OPENAI_API_KEY;
+  if (!key) return null;
+  const model = process.env.OPENAI_MODEL ?? "gpt-4o-mini";
+  const res = await fetch("https://api.openai.com/v1/chat/completions", {
+    method: "POST",
+    headers: { "content-type": "application/json", authorization: `Bearer ${key}` },
+    body: JSON.stringify({
+      model,
+      temperature: 0.2,
+      max_tokens: 800,
+      response_format: { type: "json_object" },
+      messages: [
+        { role: "system", content: system },
+        { role: "user", content: user },
+      ],
+    }),
+  });
+  if (!res.ok) throw new Error(`OpenAI ${res.status}: ${await res.text()}`);
+  const data = await res.json();
+  const text = data.choices?.[0]?.message?.content ?? "";
+  return { text, model: data.model ?? model };
+}
+
+function parseJsonObject(text: string): Record<string, unknown> | null {
+  try {
+    return JSON.parse(text);
+  } catch {
+    const match = text.match(/\{[\s\S]*\}/);
+    if (match) {
+      try {
+        return JSON.parse(match[0]);
+      } catch {
+        return null;
+      }
+    }
+    return null;
+  }
 }
 
 function placeholderExplanation(
@@ -129,7 +249,7 @@ function placeholderExplanation(
     summary,
     bullets,
     caveats: [
-      "This explanation is generated by a deterministic, rule-based engine — not a large language model. The LLM hook is stubbed and ready to connect to OpenAI/Anthropic.",
+      "This explanation is generated by a deterministic, rule-based engine — not a large language model. A real LLM is wired in: set AI_PROVIDER=anthropic|openai plus an API key to enable it.",
       "Risk heuristics are best-effort signals, not a security guarantee or financial advice. Always verify on a trusted block explorer before acting.",
     ],
     generatedAt: new Date().toISOString(),

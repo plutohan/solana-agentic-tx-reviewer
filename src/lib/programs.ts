@@ -18,6 +18,9 @@ export const MEMO_V1_PROGRAM_ID = "Memo1UhkJRfHyvLMcVucJwxXeuD728EqVDDwQDxFMNo";
 export const BPF_LOADER_UPGRADEABLE_ID =
   "BPFLoaderUpgradeab1e11111111111111111111111";
 
+/** Native SOL wrapped as an SPL mint. Transient by design (wrap/unwrap). */
+export const WSOL_MINT = "So11111111111111111111111111111111111111112";
+
 export type ProgramCategory =
   | "system"
   | "token"
@@ -76,10 +79,73 @@ export const KNOWN_PROGRAMS: Record<string, KnownProgram> = {
     category: "defi",
   },
   "6EF8rrecthR5Dkzon8Nwu78hRvfCKubJ14M5uBEwF6P": {
-    name: "pump.fun",
+    name: "pump.fun (bonding curve)",
     category: "defi",
   },
+  pAMMBay6oceH9fJKBRHGP5D4bD4sWpmSwMn52FMfXEA: {
+    name: "PumpSwap AMM",
+    category: "defi",
+  },
+  pfeeUxB6jkeY1Hxd7CsFCAjcbHA9rWtchMGdZ6VojVZ: {
+    name: "pump.fun Fee",
+    category: "defi",
+  },
+  CAMMCzo5YL8w4VFF8KVHrK22GGUsp5VTaW7grrKgrWqK: {
+    name: "Raydium CLMM",
+    category: "defi",
+  },
+  CPMMoo8L3F4NbTegBCKVNunggL7H1ZpdTHKxQB5qKP1C: {
+    name: "Raydium CPMM",
+    category: "defi",
+  },
+  LBUZKhRxPF3XUpBCjp4YzTKgLccjZhTSDM9YuVaPwxo: {
+    name: "Meteora DLMM",
+    category: "defi",
+  },
+  cpamdpZCGKUy5JxQXB4dcpGPiikHawvSWAd6mEn1sGG: {
+    name: "Meteora DAMM v2",
+    category: "defi",
+  },
+  PhoeNiXZ8ByJGLkxNfZRnkUfjvmuYqLR89jjFHGqdXY: {
+    name: "Phoenix",
+    category: "defi",
+  },
+  "2wT8Yq49kHgDzXuPxZSaeLaH1qbmGXtEyPy64bL7aD3c": {
+    name: "Lifinity v2",
+    category: "defi",
+  },
+  JUP4Fb2cqiRUcaTHdrPC8h2gNsA2ETXiPDD33WcGuJB: {
+    name: "Jupiter Aggregator v4",
+    category: "defi",
+  },
+  T1pyyaTNZsKv2WcRAB8oVnk93mLJw2XzjtVYqCsaHqt: {
+    name: "Jito Tip Payment",
+    category: "infra",
+  },
 };
+
+/**
+ * Swap venues / aggregators. Used by the risk engine to recognize that a
+ * "full token outflow" is part of a swap rather than a drain.
+ */
+export const DEX_PROGRAM_IDS = new Set<string>([
+  "JUP6LkbZbjS1jKKwapdHNy74zcZ3tLUZoi5QNyVTaV4", // Jupiter v6
+  "JUP4Fb2cqiRUcaTHdrPC8h2gNsA2ETXiPDD33WcGuJB", // Jupiter v4
+  "675kPX9MHTjS2zt1qfr1NYHuzeLXfQM9H24wFSUt1Mp8", // Raydium AMM v4
+  "CAMMCzo5YL8w4VFF8KVHrK22GGUsp5VTaW7grrKgrWqK", // Raydium CLMM
+  "CPMMoo8L3F4NbTegBCKVNunggL7H1ZpdTHKxQB5qKP1C", // Raydium CPMM
+  "whirLbMiicVdio4qvUfM5KAg6Ct8VwpYzGff3uctyCc", // Orca Whirlpools
+  "LBUZKhRxPF3XUpBCjp4YzTKgLccjZhTSDM9YuVaPwxo", // Meteora DLMM
+  "cpamdpZCGKUy5JxQXB4dcpGPiikHawvSWAd6mEn1sGG", // Meteora DAMM v2
+  "PhoeNiXZ8ByJGLkxNfZRnkUfjvmuYqLR89jjFHGqdXY", // Phoenix
+  "2wT8Yq49kHgDzXuPxZSaeLaH1qbmGXtEyPy64bL7aD3c", // Lifinity v2
+  "pAMMBay6oceH9fJKBRHGP5D4bD4sWpmSwMn52FMfXEA", // PumpSwap AMM
+  "6EF8rrecthR5Dkzon8Nwu78hRvfCKubJ14M5uBEwF6P", // pump.fun bonding curve
+]);
+
+export function isDexProgram(programId: string): boolean {
+  return DEX_PROGRAM_IDS.has(programId);
+}
 
 export function resolveProgram(programId: string): KnownProgram | undefined {
   return KNOWN_PROGRAMS[programId];

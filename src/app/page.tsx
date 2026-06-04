@@ -108,6 +108,14 @@ export default function Home() {
 
       {result && (
         <div className="mt-6">
+          <div className="mb-2 flex justify-end">
+            <a
+              href={`/tx/${encodeURIComponent(result.request.signature)}?cluster=${result.request.cluster ?? "mainnet-beta"}`}
+              className="text-xs text-zinc-500 hover:text-zinc-300"
+            >
+              Open shareable permalink ↗
+            </a>
+          </div>
           <ResultView result={result} />
         </div>
       )}

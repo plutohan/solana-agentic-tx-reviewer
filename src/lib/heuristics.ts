@@ -16,7 +16,8 @@ import type {
   RiskLevel,
   RiskReport,
 } from "./types";
-import { isKnownProgram } from "./programs";
+import { isDexProgram, isKnownProgram, WSOL_MINT } from "./programs";
+import { lookupWatch } from "./watchlist";
 import { formatSol, formatTokenAmount, shortPubkey } from "./format";
 
 /** How much each finding level contributes to the 0–100 score. */
@@ -103,13 +104,70 @@ function checkFeePayerSolOutflow(tx: ParsedTransaction): RiskFinding | null {
   };
 }
 
+const DUST_LAMPORTS = 1_000_000; // 0.001 SOL — below this, an inflow is "dust"
+
+/**
+ * Swap context: did a known DEX run, and which owners received non-dust value
+ * back in this tx (a token inflow > 1 base unit, including WSOL, or net SOL in)?
+ * Used to distinguish a swap/position-exit from a drain.
+ */
+function buildSwapContext(tx: ParsedTransaction): {
+  dexPresent: boolean;
+  inflowOwners: Set<string>;
+} {
+  const dexPresent = tx.programsInvoked.some((p) => isDexProgram(p.programId));
+  const inflowOwners = new Set<string>();
+  for (const c of tx.tokenBalanceChanges) {
+    if (c.owner && BigInt(c.postAmount) - BigInt(c.preAmount) > 1n) {
+      inflowOwners.add(c.owner);
+    }
+  }
+  for (const a of tx.accounts) {
+    if (a.solChangeLamports > DUST_LAMPORTS) inflowOwners.add(a.pubkey);
+  }
+  return { dexPresent, inflowOwners };
+}
+
 function checkTokenMovements(tx: ParsedTransaction): RiskFinding[] {
   const findings: RiskFinding[] = [];
+  const { dexPresent, inflowOwners } = buildSwapContext(tx);
+  const signers = new Set(tx.signers);
+
   for (const c of tx.tokenBalanceChanges) {
+    // Wrapped SOL is transient (wrap/unwrap); the native SOL rules cover it.
+    if (c.mint === WSOL_MINT) continue;
+    // Only the signing user's OWN token accounts matter for drain/outflow.
+    // Pool/vault accounts (owned by program PDAs) routinely zero out in swaps.
+    if (!c.owner || !signers.has(c.owner)) continue;
+
+    const fullDrain = c.uiPreAmount > 0 && c.uiPostAmount === 0;
+    const pct = c.uiPreAmount > 0 ? Math.abs(c.delta) / c.uiPreAmount : 0;
+    const largeOutflow =
+      c.delta < 0 && c.uiPreAmount > 0 && pct >= THRESHOLDS.largeTokenOutflowPct;
+    if (!fullDrain && !largeOutflow) continue;
+
     const who = shortPubkey(c.owner ?? c.account);
     const mint = shortPubkey(c.mint);
 
-    if (c.uiPreAmount > 0 && c.uiPostAmount === 0) {
+    // Defensive swap-aware downgrade: relabel (don't clear) when the SAME owner
+    // received non-dust value back through a known DEX in the same tx. A drainer
+    // that dusts a fake inflow still fails the >1-base-unit guard, and an unknown
+    // owner never qualifies (fails safe to the higher-risk drain finding).
+    if (dexPresent && c.owner && inflowOwners.has(c.owner)) {
+      findings.push({
+        id: "TOKEN_SWAP",
+        title: "Token swapped via a DEX",
+        level: "low",
+        detail:
+          "This account sent most/all of a token balance, but the same owner received value back through a known DEX/aggregator in the same transaction — consistent with a swap or position exit, not a drain. Still verify the amounts and counterparty.",
+        evidence: [
+          `${who} swapped ${formatTokenAmount(Math.abs(c.delta), c.decimals)} of mint ${mint} via a known DEX`,
+        ],
+      });
+      continue;
+    }
+
+    if (fullDrain) {
       findings.push({
         id: "FULL_TOKEN_ACCOUNT_DRAIN",
         title: "Token account fully drained",
@@ -118,21 +176,44 @@ function checkTokenMovements(tx: ParsedTransaction): RiskFinding[] {
           "A token account went from a positive balance to zero — the signature pattern of a wallet drain or a full position exit. Verify this was intentional.",
         evidence: [`${who} sent its entire balance of mint ${mint}`],
       });
-    } else if (c.delta < 0 && c.uiPreAmount > 0) {
-      const pct = Math.abs(c.delta) / c.uiPreAmount;
-      if (pct >= THRESHOLDS.largeTokenOutflowPct) {
-        findings.push({
-          id: "LARGE_TOKEN_OUTFLOW",
-          title: `Large token outflow (${Math.round(pct * 100)}% of balance)`,
-          level: pct >= 0.9 ? "medium" : "low",
-          detail:
-            "A token account decreased by a significant fraction of its balance.",
-          evidence: [
-            `${who} sent ${formatTokenAmount(Math.abs(c.delta), c.decimals)} of mint ${mint} (${Math.round(pct * 100)}% of its prior balance)`,
-          ],
-        });
-      }
+    } else {
+      findings.push({
+        id: "LARGE_TOKEN_OUTFLOW",
+        title: `Large token outflow (${Math.round(pct * 100)}% of balance)`,
+        level: pct >= 0.9 ? "medium" : "low",
+        detail:
+          "A token account decreased by a significant fraction of its balance.",
+        evidence: [
+          `${who} sent ${formatTokenAmount(Math.abs(c.delta), c.decimals)} of mint ${mint} (${Math.round(pct * 100)}% of its prior balance)`,
+        ],
+      });
     }
+  }
+  return findings;
+}
+
+function checkWatchlist(tx: ParsedTransaction): RiskFinding[] {
+  const findings: RiskFinding[] = [];
+  const seen = new Set<string>();
+  const candidates = [
+    ...tx.accounts.map((a) => a.pubkey),
+    ...tx.programsInvoked.map((p) => p.programId),
+  ];
+  for (const addr of candidates) {
+    if (seen.has(addr)) continue;
+    seen.add(addr);
+    const hit = lookupWatch(addr);
+    if (!hit) continue;
+    findings.push({
+      id: "FLAGGED_ADDRESS",
+      title: `Flagged address: ${hit.label}`,
+      level: hit.category === "burn" ? "medium" : "high",
+      detail:
+        "An address in this transaction matches a curated watchlist of flagged addresses/programs. The list is best-effort and non-exhaustive — not financial advice. Verify independently.",
+      evidence: [
+        `${shortPubkey(addr)} — ${hit.category}: ${hit.label} (source: ${hit.source})`,
+      ],
+    });
   }
   return findings;
 }
@@ -302,6 +383,7 @@ function checkMemo(tx: ParsedTransaction): RiskFinding | null {
 const RULES: Array<(tx: ParsedTransaction) => RiskFinding | RiskFinding[] | null> =
   [
     checkFailed,
+    checkWatchlist,
     checkUnknownPrograms,
     checkFeePayerSolOutflow,
     checkTokenMovements,
@@ -345,22 +427,62 @@ function buildSummary(findings: RiskFinding[], level: RiskLevel): string {
   return `Overall ${level.toUpperCase()} — ${parts.join(", ")} signal${findings.length > 1 ? "s" : ""}.`;
 }
 
+/** Collapse repeated same-id findings into one (merging evidence, tagging count). */
+function dedupeFindings(raw: RiskFinding[]): RiskFinding[] {
+  const map = new Map<string, { finding: RiskFinding; count: number }>();
+  for (const f of raw) {
+    const entry = map.get(f.id);
+    if (!entry) {
+      map.set(f.id, {
+        finding: { ...f, evidence: f.evidence ? [...f.evidence] : undefined },
+        count: 1,
+      });
+    } else {
+      entry.count += 1;
+      if (f.evidence?.length) {
+        entry.finding.evidence = [...(entry.finding.evidence ?? []), ...f.evidence];
+      }
+    }
+  }
+  return [...map.values()].map(({ finding, count }) =>
+    count > 1 ? { ...finding, title: `${finding.title} (×${count})` } : finding,
+  );
+}
+
+/**
+ * Score with diminishing returns per level (the k-th finding at a level adds
+ * weight * 0.5^k). Prevents saturation at 100 for busy-but-benign transactions
+ * while keeping real, stacked high-severity signals near the top.
+ */
+function computeScore(findings: RiskFinding[]): number {
+  const indexByLevel: Record<RiskLevel, number> = {
+    info: 0,
+    low: 0,
+    medium: 0,
+    high: 0,
+  };
+  const ordered = [...findings].sort((a, b) => LEVEL_RANK[b.level] - LEVEL_RANK[a.level]);
+  let total = 0;
+  for (const f of ordered) {
+    const k = indexByLevel[f.level]++;
+    total += LEVEL_WEIGHT[f.level] * Math.pow(0.5, k);
+  }
+  return clamp(Math.round(total), 0, 100);
+}
+
 export function assessRisk(tx: ParsedTransaction): RiskReport {
-  const findings: RiskFinding[] = [];
+  const raw: RiskFinding[] = [];
   for (const rule of RULES) {
     const result = rule(tx);
     if (!result) continue;
-    if (Array.isArray(result)) findings.push(...result);
-    else findings.push(result);
+    if (Array.isArray(result)) raw.push(...result);
+    else raw.push(result);
   }
 
-  const score = clamp(
-    findings.reduce((sum, f) => sum + LEVEL_WEIGHT[f.level], 0),
-    0,
-    100,
-  );
-  const level = overallLevel(findings);
+  const findings = dedupeFindings(raw);
   findings.sort((a, b) => LEVEL_RANK[b.level] - LEVEL_RANK[a.level]);
+  const score = computeScore(findings);
+  const level = overallLevel(findings);
 
   return { score, level, findings, summary: buildSummary(findings, level) };
 }
