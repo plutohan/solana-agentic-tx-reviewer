@@ -35,3 +35,5 @@ codex-session.jsonl
 # grant submission bundle (local only; contains session transcript)
 grant-submission/
 grant-submission.zip
+
+FORM-FIELDS.txt
