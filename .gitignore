@@ -31,3 +31,7 @@ next-env.d.ts
 *-session.jsonl
 claude-session.jsonl
 codex-session.jsonl
+
+# grant submission bundle (local only; contains session transcript)
+grant-submission/
+grant-submission.zip
