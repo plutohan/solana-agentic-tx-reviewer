@@ -26,3 +26,8 @@ yarn-error.log*
 # typescript
 *.tsbuildinfo
 next-env.d.ts
+
+# AI session transcripts (for grant upload, not the repo)
+*-session.jsonl
+claude-session.jsonl
+codex-session.jsonl
