@@ -51,21 +51,46 @@ export function ResultView({ result }: { result: ReviewResult }) {
       <Card
         title="Overview"
         right={
-          <span
-            className={`rounded-full px-2.5 py-0.5 text-xs font-medium ${
-              tx.success
-                ? "bg-emerald-500/15 text-emerald-300"
-                : "bg-rose-500/15 text-rose-300"
-            }`}
-          >
-            {tx.success ? "Success" : "Failed"}
-          </span>
+          <div className="flex items-center gap-2">
+            {tx.simulated && (
+              <span className="rounded-full bg-violet-500/15 px-2.5 py-0.5 text-xs font-medium uppercase tracking-wide text-violet-300">
+                Simulated
+              </span>
+            )}
+            <span
+              className={`rounded-full px-2.5 py-0.5 text-xs font-medium ${
+                tx.success
+                  ? "bg-emerald-500/15 text-emerald-300"
+                  : "bg-rose-500/15 text-rose-300"
+              }`}
+            >
+              {tx.simulated
+                ? tx.success
+                  ? "Would succeed"
+                  : "Would fail"
+                : tx.success
+                  ? "Success"
+                  : "Failed"}
+            </span>
+          </div>
         }
       >
         <div className="grid grid-cols-2 gap-4 sm:grid-cols-3">
-          <Field label="Signature" value={<Mono>{shortPubkey(tx.signature, 8)}</Mono>} />
+          <Field
+            label={tx.simulated ? "Source" : "Signature"}
+            value={
+              tx.simulated ? (
+                "unsigned (pre-sign)"
+              ) : (
+                <Mono>{shortPubkey(tx.signature, 8)}</Mono>
+              )
+            }
+          />
           <Field label="Cluster" value={tx.cluster} />
-          <Field label="Slot" value={tx.slot.toLocaleString()} />
+          <Field
+            label="Slot"
+            value={tx.simulated ? "—" : tx.slot.toLocaleString()}
+          />
           <Field
             label="Block time"
             value={
@@ -74,7 +99,10 @@ export function ResultView({ result }: { result: ReviewResult }) {
                 : "—"
             }
           />
-          <Field label="Fee" value={`${formatSol(tx.feeSol)} SOL`} />
+          <Field
+            label="Fee"
+            value={tx.simulated ? "—" : `${formatSol(tx.feeSol)} SOL`}
+          />
           <Field
             label="Compute units"
             value={tx.computeUnitsConsumed?.toLocaleString() ?? "—"}
@@ -188,7 +216,7 @@ export function ResultView({ result }: { result: ReviewResult }) {
               <thead className="text-xs text-zinc-500">
                 <tr>
                   <th className="pb-2 font-medium">Owner</th>
-                  <th className="pb-2 font-medium">Mint</th>
+                  <th className="pb-2 font-medium">Token</th>
                   <th className="pb-2 text-right font-medium">Before</th>
                   <th className="pb-2 text-right font-medium">After</th>
                   <th className="pb-2 text-right font-medium">Δ</th>
@@ -200,7 +228,18 @@ export function ResultView({ result }: { result: ReviewResult }) {
                     <td className="py-1.5 text-zinc-300">
                       {shortPubkey(c.owner ?? c.account)}
                     </td>
-                    <td className="py-1.5 text-zinc-400">{shortPubkey(c.mint)}</td>
+                    <td className="py-1.5">
+                      {c.symbol ? (
+                        <span className="text-zinc-200">
+                          {c.symbol}
+                          <span className="ml-1.5 text-[11px] text-zinc-600">
+                            {shortPubkey(c.mint, 4)}
+                          </span>
+                        </span>
+                      ) : (
+                        <span className="text-zinc-400">{shortPubkey(c.mint)}</span>
+                      )}
+                    </td>
                     <td className="py-1.5 text-right text-zinc-400">
                       {formatTokenAmount(c.uiPreAmount, c.decimals)}
                     </td>

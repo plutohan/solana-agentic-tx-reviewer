@@ -8,9 +8,12 @@
 
 export type Cluster = "mainnet-beta" | "devnet" | "testnet";
 
-/** What the client sends to /api/review. */
+/** What the client sends to /api/review. Provide exactly one of signature | rawTransaction. */
 export interface ReviewRequest {
-  signature: string;
+  /** A confirmed transaction signature to review (post-hoc path). */
+  signature?: string;
+  /** A base64-serialized UNSIGNED transaction to simulate and review (pre-sign path). */
+  rawTransaction?: string;
   cluster?: Cluster;
   /** Optional custom RPC endpoint (e.g. a Helius/QuickNode URL) to avoid public-RPC rate limits. */
   rpcUrl?: string;
@@ -59,6 +62,10 @@ export interface TokenBalanceChange {
   owner?: string;
   mint: string;
   decimals: number;
+  /** Token metadata, resolved after parsing when available. */
+  symbol?: string;
+  name?: string;
+  logoURI?: string;
   /** Raw integer amounts (base units) as strings. */
   preAmount: string;
   postAmount: string;
@@ -98,6 +105,8 @@ export interface ParsedTransaction {
   tokenBalanceChanges: TokenBalanceChange[];
   programsInvoked: ProgramInvocation[];
   version: "legacy" | number;
+  /** True when this view came from simulating an unsigned transaction (pre-sign path). */
+  simulated?: boolean;
 }
 
 export type RiskLevel = "info" | "low" | "medium" | "high";

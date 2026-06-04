@@ -1,6 +1,8 @@
 /**
  * POST /api/review
- * Body: { signature: string, cluster?: Cluster, rpcUrl?: string }
+ * Body: { signature?: string, rawTransaction?: string, cluster?: Cluster, rpcUrl?: string }
+ *   - signature      -> review a confirmed transaction
+ *   - rawTransaction -> simulate and review an unsigned (base64) transaction
  * Returns: ReviewResult (200) | { error } (4xx/5xx)
  *
  * Runs on the Node.js runtime because @solana/web3.js needs Node APIs.
@@ -13,7 +15,12 @@ export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
 export async function POST(req: Request) {
-  let body: { signature?: string; cluster?: Cluster; rpcUrl?: string };
+  let body: {
+    signature?: string;
+    rawTransaction?: string;
+    cluster?: Cluster;
+    rpcUrl?: string;
+  };
   try {
     body = await req.json();
   } catch {
@@ -22,7 +29,8 @@ export async function POST(req: Request) {
 
   try {
     const result = await reviewTransaction({
-      signature: body.signature ?? "",
+      signature: body.signature,
+      rawTransaction: body.rawTransaction,
       cluster: body.cluster,
       rpcUrl: body.rpcUrl,
     });

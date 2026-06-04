@@ -65,7 +65,7 @@ function toInstructionSummary(
  * float subtraction. The RPC's uiAmount can be null (large amounts / odd mints),
  * so we never trust it — we always derive from the raw `amount` string.
  */
-function rawToUi(raw: string, decimals: number): number {
+export function rawToUi(raw: string, decimals: number): number {
   if (decimals <= 0) return Number(raw);
   const negative = raw.startsWith("-");
   const digits = (negative ? raw.slice(1) : raw).padStart(decimals + 1, "0");
