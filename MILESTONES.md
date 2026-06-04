@@ -2,7 +2,7 @@
 
 **Project:** Solana Agentic Transaction Reviewer
 **Grant:** Superteam Agentic Engineering micro-grant (~200 USDG, Solana Earn)
-**Status:** Working build. The check that runs before a transaction gets signed. See [Current Status](#1-current-status--what-is-done-today).
+**Status:** Working build. The check that runs before a transaction gets signed. See [Current Status](#1-current-status-what-is-done-today).
 **Scope discipline:** read-only analysis only. No new protocol. No signing or sending of transactions.
 
 This is the delivery plan for the grant. It starts with the agentic-engineering framing (why this matters and how it was built), states plainly what exists today, then lays out an incremental roadmap (M1 to M4) with pre-sign simulation as the headline next milestone. After that come a timeline, a budget mapping for a micro-grant, and a risk register.
@@ -25,11 +25,11 @@ The reviewer is deterministic where it has to be. The risk score is a pure funct
 
 - A research-agent discovery pass confirmed the program IDs now in the registry (PumpSwap, pump.fun Fee, Raydium CLMM/CPMM, Meteora DLMM/DAMM v2, Phoenix, Lifinity v2, Jupiter v4, Jito Tip) and de-risked the heuristics. The signer-scoping and swap-aware fixes below came straight out of that review.
 - Agents updated the toolchain to current (Node 24.16.0, Rust 1.96.0, Agave 4.0.1, Anchor 1.0.2) and the web stack (Next 16, React 19, TS 6, Tailwind 4).
-- The pre-sign-simulation recipe in [M1](#m1--pre-sign-simulation-headline) was de-risked the same way: researched, sketched, and reduced to a concrete RPC recipe before any code gets written.
+- The pre-sign-simulation recipe in [M1](#m1-pre-sign-simulation-headline) was de-risked the same way: researched, sketched, and reduced to a concrete RPC recipe before any code gets written.
 
 ---
 
-## 1. Current Status — what is done today
+## 1. Current Status: what is done today
 
 A working Next.js (App Router) web app. A user or an agent supplies a transaction signature. The app fetches the transaction read-only over Solana RPC, normalizes it into a shared data model, runs deterministic risk heuristics, and renders a human-readable explanation plus a risk report. The same pipeline also backs a server-rendered shareable permalink.
 
@@ -113,7 +113,7 @@ The broader Solana dev toolchain on the machine is also current (Rust 1.96.0, Ag
 - **Public RPC rate-limits and prunes old transactions.** A custom RPC URL (per request or via `SOLANA_RPC_URL`) works around this.
 - **The `rpcUrl` passthrough lets the server fetch a client-supplied URL.** The baseline SSRF guard (`assertSafeRpcUrl`) ships today. A positive host allowlist remains for production.
 - **No persistence, no auth.** Reviews are computed on demand.
-- **Post-hoc only, for now.** Today the reviewer judges a *confirmed* signature. Reviewing an *unsigned* transaction before approval is [M1](#m1--pre-sign-simulation-headline) below.
+- **Post-hoc only, for now.** Today the reviewer judges a *confirmed* signature. Reviewing an *unsigned* transaction before approval is [M1](#m1-pre-sign-simulation-headline) below.
 
 ---
 
@@ -121,9 +121,9 @@ The broader Solana dev toolchain on the machine is also current (Rust 1.96.0, Ag
 
 Estimates reflect the agent-assisted pace this project was actually built at (the whole M0 reviewer took one session of roughly three hours), so they are in days. Each milestone ships independently and builds on the existing contract in `src/lib/types.ts`. **M0 (the working reviewer above) is done.** **M1, pre-sign simulation, is the headline next milestone.**
 
-### M0 — Working reviewer (DONE)
+### M0: Working reviewer (DONE)
 
-Everything in [section 1](#1-current-status--what-is-done-today): the read-only pipeline, the 18-rule signer-scoped, swap-aware, de-saturated risk engine, the real dual-provider LLM seam with a free placeholder default, the watchlist, the shareable permalink + OG card, the regression suite, and a public git history.
+Everything in [section 1](#1-current-status-what-is-done-today): the read-only pipeline, the 18-rule signer-scoped, swap-aware, de-saturated risk engine, the real dual-provider LLM seam with a free placeholder default, the watchlist, the shareable permalink + OG card, the regression suite, and a public git history.
 
 **Acceptance criteria (met)**
 - Pasting a real mainnet signature returns a parsed transaction, a risk report, and a readable explanation **with no API keys configured** (free placeholder). With `AI_PROVIDER` plus a key, the explanation is genuinely model-generated and `provider`/`model` reflect it.
@@ -134,7 +134,7 @@ Everything in [section 1](#1-current-status--what-is-done-today): the read-only 
 
 ---
 
-### M1 — Pre-sign simulation (HEADLINE)
+### M1: Pre-sign simulation (HEADLINE)
 
 The flagship next step, and the clearest expression of the framing. Move from "review a confirmed signature after the fact" to "review an **unsigned** transaction *before* approving it." This is what lets an agent, or a human using a wallet, see a plain-English explanation and a risk score for a transaction it is *about* to sign, which closes the loop (`propose → review → approve`). **Not built yet. The recipe is de-risked and concrete.**
 
@@ -155,9 +155,9 @@ The flagship next step, and the clearest expression of the framing. Move from "r
 
 ---
 
-### M2 — Real LLM explanation, deepened
+### M2: Real LLM explanation, deepened
 
-The dual-provider seam is **already wired and shipped** (Anthropic/OpenAI, prompt caching, graceful fallback, see [section 1](#1-current-status--what-is-done-today)). M2 hardens and extends it.
+The dual-provider seam is **already wired and shipped** (Anthropic/OpenAI, prompt caching, graceful fallback, see [section 1](#1-current-status-what-is-done-today)). M2 hardens and extends it.
 
 **Deliverables**
 - Tighten guardrails: output-length caps (in place), explicit timeouts and retries, and a small cost budget per request.
@@ -174,7 +174,7 @@ The dual-provider seam is **already wired and shipped** (Anthropic/OpenAI, promp
 
 ---
 
-### M3 — Richer parsing & metadata enrichment
+### M3: Richer parsing & metadata enrichment
 
 Make the extracted data more legible so both the heuristics and the explanation have more context.
 
@@ -194,7 +194,7 @@ Make the extracted data more legible so both the heuristics and the explanation 
 
 ---
 
-### M4 — Expanded heuristics, threat intel & hardening
+### M4: Expanded heuristics, threat intel & hardening
 
 Increase detection coverage and precision, grow the threat intelligence, and harden the service for shared or production use.
 
