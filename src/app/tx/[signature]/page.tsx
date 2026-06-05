@@ -7,6 +7,7 @@ import { shortPubkey } from "@/lib/format";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
+export const maxDuration = 30;
 
 type Params = { signature: string };
 type Search = { cluster?: string };

@@ -13,6 +13,9 @@ import type { Cluster } from "@/lib/types";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
+// The pre-sign path makes several RPC round trips (ALTs, pre-state, simulate,
+// mint decimals) plus an optional LLM call; give it room beyond the default.
+export const maxDuration = 30;
 
 export async function POST(req: Request) {
   let body: {

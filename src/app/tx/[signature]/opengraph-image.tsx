@@ -4,6 +4,7 @@ import type { RiskLevel } from "@/lib/types";
 import { shortPubkey } from "@/lib/format";
 
 export const runtime = "nodejs";
+export const maxDuration = 30;
 export const size = { width: 1200, height: 630 };
 export const contentType = "image/png";
 export const alt = "Solana transaction risk review";
