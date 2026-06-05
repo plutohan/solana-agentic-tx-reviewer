@@ -26,13 +26,16 @@ import type {
 } from "./types";
 import {
   resolveProgram,
-  SYSTEM_PROGRAM_ID,
   TOKEN_PROGRAM_ID,
   TOKEN_2022_PROGRAM_ID,
-} from "./programs";
-import { lamportsToSol } from "./format";
-import { rawToUi } from "./parse";
+  decodeIxType,
+  rawToUi,
+  lamportsToSol,
+} from "@solana-tx-reviewer/core";
 import { getConnection } from "./solana";
+
+// Re-exported for the test suite and decoder consumers.
+export { decodeIxType };
 
 /** Error carrying an HTTP status, mirroring ReviewError for the API layer. */
 export class PresignError extends Error {
@@ -45,86 +48,6 @@ export class PresignError extends Error {
 }
 
 const TOKEN_PROGRAMS = new Set([TOKEN_PROGRAM_ID, TOKEN_2022_PROGRAM_ID]);
-
-// Map raw instruction discriminators back to the parsedType strings the
-// confirmed (jsonParsed) path emits, so the same heuristics fire pre-sign.
-const SPL_TOKEN_IX: Record<number, string> = {
-  1: "initializeAccount",
-  3: "transfer",
-  4: "approve",
-  5: "revoke",
-  6: "setAuthority",
-  7: "mintTo",
-  8: "burn",
-  9: "closeAccount",
-  10: "freezeAccount",
-  11: "thawAccount",
-  12: "transferChecked",
-  13: "approveChecked",
-  14: "mintToChecked",
-  15: "burnChecked",
-  16: "initializeAccount2",
-  17: "syncNative",
-  18: "initializeAccount3",
-};
-const SYSTEM_IX: Record<number, string> = {
-  0: "createAccount",
-  1: "assign",
-  2: "transfer",
-  3: "createAccountWithSeed",
-  8: "allocate",
-  9: "allocateWithSeed",
-  10: "assignWithSeed",
-  11: "transferWithSeed",
-};
-const COMPUTE_BUDGET_PROGRAM_ID = "ComputeBudget111111111111111111111111111111";
-const ASSOCIATED_TOKEN_PROGRAM_ID = "ATokenGPvbdGVxr1b2hvZbsiqW5xWH25efTNsLJA8knL";
-const MEMO_PROGRAM_IDS = new Set([
-  "MemoSq4gqABAXKb96qnH8TysNcWxMyWCqXgDLGmfcHr",
-  "Memo1UhkJRfHyvLMcVucJwxXeuD728EqVDDwQDxFMNo",
-]);
-const COMPUTE_BUDGET_IX: Record<number, string> = {
-  0: "requestUnits",
-  1: "requestHeapFrame",
-  2: "setComputeUnitLimit",
-  3: "setComputeUnitPrice",
-};
-const ASSOCIATED_TOKEN_IX: Record<number, string> = {
-  0: "create",
-  1: "createIdempotent",
-  2: "recoverNested",
-};
-
-export function decodeIxType(
-  programId: string,
-  data: Buffer,
-): { program?: string; parsedType?: string } {
-  if (TOKEN_PROGRAMS.has(programId)) {
-    const program =
-      programId === TOKEN_2022_PROGRAM_ID ? "spl-token-2022" : "spl-token";
-    return { program, parsedType: data.length ? SPL_TOKEN_IX[data[0]] : undefined };
-  }
-  if (programId === SYSTEM_PROGRAM_ID) {
-    const type = data.length >= 4 ? SYSTEM_IX[data.readUInt32LE(0)] : undefined;
-    return { program: "system", parsedType: type };
-  }
-  if (programId === COMPUTE_BUDGET_PROGRAM_ID) {
-    return {
-      program: "compute-budget",
-      parsedType: data.length ? COMPUTE_BUDGET_IX[data[0]] : undefined,
-    };
-  }
-  if (programId === ASSOCIATED_TOKEN_PROGRAM_ID) {
-    // The original Create instruction carries no data; later variants use a
-    // single-byte discriminator.
-    const parsedType = data.length === 0 ? "create" : ASSOCIATED_TOKEN_IX[data[0]];
-    return { program: "spl-associated-token-account", parsedType };
-  }
-  if (MEMO_PROGRAM_IDS.has(programId)) {
-    return { program: "spl-memo", parsedType: "memo" };
-  }
-  return {};
-}
 
 interface AccountState {
   owner: string;

@@ -3,15 +3,18 @@
   "version": "0.1.0",
   "private": true,
   "description": "Lightweight AI-assisted Solana transaction review tool (read-only PoC).",
+  "workspaces": ["packages/*"],
   "scripts": {
-    "dev": "next dev",
-    "build": "next build",
+    "dev": "npm run build:core && next dev",
+    "build": "npm run build:core && next build",
+    "build:core": "tsc -p packages/core/tsconfig.json",
     "start": "next start",
     "lint": "next lint",
-    "typecheck": "tsc --noEmit",
-    "test": "tsx tests/heuristics.test.ts && tsx tests/lib.test.ts"
+    "typecheck": "npm run build:core && tsc --noEmit",
+    "test": "npm run build:core && tsx tests/heuristics.test.ts && tsx tests/lib.test.ts"
   },
   "dependencies": {
+    "@solana-tx-reviewer/core": "*",
     "@solana/web3.js": "^1.98.4",
     "next": "^16.2.7",
     "react": "^19.2.7",
