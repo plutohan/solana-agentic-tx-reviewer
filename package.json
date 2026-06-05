@@ -8,6 +8,7 @@
     "dev": "npm run build:core && next dev",
     "build": "npm run build:core && next build",
     "build:core": "tsc -p packages/core/tsconfig.json",
+    "build:mcp": "npm run build:core && tsc -p packages/mcp/tsconfig.json",
     "start": "next start",
     "lint": "next lint",
     "typecheck": "npm run build:core && tsc --noEmit",

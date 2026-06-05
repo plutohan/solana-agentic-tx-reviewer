@@ -9,10 +9,10 @@
  * the same in Node, the browser, CI, and an agent runtime. Feed it a
  * `ParsedTransaction` and get back a `RiskReport`.
  */
-export * from "./types";
-export * from "./format";
-export * from "./numbers";
-export * from "./programs";
-export * from "./watchlist";
-export * from "./decode";
-export * from "./heuristics";
+export * from "./types.js";
+export * from "./format.js";
+export * from "./numbers.js";
+export * from "./programs.js";
+export * from "./watchlist.js";
+export * from "./decode.js";
+export * from "./heuristics.js";

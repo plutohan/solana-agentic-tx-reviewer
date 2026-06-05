@@ -1,0 +1,24 @@
+{
+  "name": "@solana-tx-reviewer/mcp",
+  "version": "0.1.0",
+  "description": "Model Context Protocol server exposing the Solana Agentic Transaction Reviewer as agent tools: review_transaction (before or after signing) and assess_parsed_transaction (local, no network). Read-only.",
+  "type": "module",
+  "bin": {
+    "solana-tx-reviewer-mcp": "./dist/index.js"
+  },
+  "files": ["dist", "README.md"],
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "prepublishOnly": "npm run build"
+  },
+  "keywords": ["mcp", "solana", "transaction", "security", "agent", "model-context-protocol"],
+  "dependencies": {
+    "@modelcontextprotocol/sdk": "^1.0.0",
+    "@solana-tx-reviewer/core": "*"
+  },
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/plutohan/solana-agentic-tx-reviewer"
+  }
+}

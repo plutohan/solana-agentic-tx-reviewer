@@ -15,10 +15,10 @@ import type {
   RiskFinding,
   RiskLevel,
   RiskReport,
-} from "./types";
-import { isDexProgram, isKnownProgram, WSOL_MINT } from "./programs";
-import { lookupWatch } from "./watchlist";
-import { formatSol, formatTokenAmount, shortPubkey } from "./format";
+} from "./types.js";
+import { isDexProgram, isKnownProgram, WSOL_MINT } from "./programs.js";
+import { lookupWatch } from "./watchlist.js";
+import { formatSol, formatTokenAmount, shortPubkey } from "./format.js";
 
 /** How much each finding level contributes to the 0–100 score. */
 export const LEVEL_WEIGHT: Record<RiskLevel, number> = {

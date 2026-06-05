@@ -14,7 +14,7 @@ import {
   COMPUTE_BUDGET_PROGRAM_ID,
   MEMO_PROGRAM_ID,
   MEMO_V1_PROGRAM_ID,
-} from "./programs";
+} from "./programs.js";
 
 const TOKEN_PROGRAMS = new Set<string>([TOKEN_PROGRAM_ID, TOKEN_2022_PROGRAM_ID]);
 const MEMO_PROGRAMS = new Set<string>([MEMO_PROGRAM_ID, MEMO_V1_PROGRAM_ID]);
