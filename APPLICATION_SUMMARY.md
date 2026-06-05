@@ -1,6 +1,6 @@
 # Solana Agentic Transaction Reviewer
 
-**The review step an agent runs before it signs: a read-only tool that turns a raw Solana transaction into a plain-English explanation and a scored, auditable risk report, so a human (or an agent) understands what was signed or is about to be.**
+**The review step an agent runs before it signs. A read-only tool that turns a raw Solana transaction into a plain-English explanation and a scored, auditable risk report, so a human (or an agent) understands what was signed, or is about to be.**
 
 > Status: working proof-of-concept. Submitted for the Superteam Agentic Engineering micro-grant (~200 USDG, Solana Earn).
 
@@ -20,7 +20,17 @@ Every day, Solana users and bots approve transactions they cannot read. Wallets 
 
 ## 3. What's built
 
-A complete, runnable Next.js 16 (App Router) app. It is **read-only**. It never signs, never sends, never holds a key. You paste a signature. It fetches over Solana RPC (`getParsedTransaction`, `maxSupportedTransactionVersion: 0`), normalizes the result (SOL deltas, SPL token balance changes, flattened top-level **and** inner/CPI instructions, aggregated program invocations), runs deterministic heuristics, and produces a natural-language explanation plus a scored risk report. In `src/lib/`: `types.ts`, `solana.ts` (read-only RPC plus an SSRF guard on client-supplied URLs), `parse.ts`, `programs.ts`, `heuristics.ts`, `watchlist.ts`, `ai.ts`, and `review.ts`, orchestrated behind `src/app/api/review/route.ts`.
+A complete, runnable Next.js 16 (App Router) app. It is **read-only**. It never signs, never sends, never holds a key. It reviews a transaction two ways, and both paths run the exact same `parse → risk → explain` pipeline.
+
+**Pre-sign simulation is shipped (`src/lib/presign.ts`). This is the headline feature, and it is built and verified live.** You can now review an **unsigned** transaction before approving it. The safety layer moved *before* the signature, which is the whole point of the agent-loop framing. The flow: accept a base64-serialized `VersionedTransaction`, deserialize it, resolve any address lookup tables (v0), then simulate read-only with `connection.simulateTransaction(vtx, { sigVerify: false, replaceRecentBlockhash: true, innerInstructions: true, accounts: { encoding: 'base64', addresses: writableAccounts } })`. From there it derives SOL and SPL token deltas by diffing the pre-state (`getMultipleAccountsInfo`) against the simulated post-state (token amount is the u64 LE at byte 64, mint decimals come from the mint account at byte 44). It recovers SPL Token and System instruction *types* from the raw instruction data with a small discriminator decoder, so the same `parsedType`-dependent heuristics (`setAuthority`, `approve`, `closeAccount`, `createAccount`, and the rest) still fire. It emits the SAME `ParsedTransaction` the confirmed path produces (with `simulated: true`), so the risk engine, the explanation, and the UI are unchanged. I verified it live: an unsigned transfer to the burn/incinerator address simulated successfully, showed SOL deltas of -0.001005 (payer, fee included) and +0.001 (burn), and the `FLAGGED_ADDRESS` watchlist rule fired BEFORE signing. Nothing is ever signed or sent. Simulation only.
+
+**Token metadata enrichment is shipped (`src/lib/metadata.ts`).** It resolves a mint to `{ symbol, name, logoURI }` via a small known-token registry (SOL, USDC, USDT, BONK, JUP, WIF, JTO) plus a cached, best-effort Jupiter datapi lookup (`https://datapi.jup.ag/v1/assets/search?query=<mint>`). It degrades gracefully to the raw mint when a token is unknown or the endpoint is unreachable. Token tables and the explanation now show "USDC" and a logo instead of a raw mint and a base-unit delta. `enrichTokenMetadata()` runs inside `reviewTransaction()` for BOTH paths, and it never throws.
+
+**The confirmed-signature path.** You paste a signature. It fetches over Solana RPC (`getParsedTransaction`, `maxSupportedTransactionVersion: 0`), normalizes the result (SOL deltas, SPL token balance changes, flattened top-level **and** inner/CPI instructions, aggregated program invocations), runs deterministic heuristics, and produces a natural-language explanation plus a scored risk report. In `src/lib/`: `types.ts`, `solana.ts` (read-only RPC plus an SSRF guard on client-supplied URLs), `parse.ts`, `presign.ts`, `metadata.ts`, `programs.ts`, `heuristics.ts`, `watchlist.ts`, `ai.ts`, and `review.ts`, orchestrated behind `src/app/api/review/route.ts`.
+
+**The API and the types carry both modes.** `ReviewRequest` now accepts `signature` or `rawTransaction` (exactly one). `POST /api/review` with `{ rawTransaction: <base64> }` triggers the pre-sign path. New type fields: `ReviewRequest.rawTransaction`, `ParsedTransaction.simulated`, and `TokenBalanceChange.symbol`/`name`/`logoURI`.
+
+**The UI handles both paths.** The home page has a "Confirmed signature" / "Unsigned tx (pre-sign)" toggle, with a textarea for the base64 tx. `ResultView` shows token symbols, plus a "SIMULATED" badge and "Would succeed / Would fail" for the pre-sign path. The shareable permalink is shown only for confirmed reviews. The simulated explanation is framed plainly: "This is a read-only simulation of an unsigned transaction. If signed and sent now, it would..."
 
 **Tuned, signer-scoped, swap-aware heuristics (18 rules, up from 16).** I hardened the engine in `heuristics.ts` against the false positives that plague naive scanners:
 
@@ -36,21 +46,31 @@ Every finding carries human-readable evidence. These are explainable **signals, 
 
 **A shareable permalink with an OG risk card.** `GET /tx/<signature>?cluster=…` (`src/app/tx/[signature]/page.tsx`) server-renders the full `reviewTransaction` pipeline, reusing `ResultView` with zero new risk logic. A Next 16 `ImageResponse` OG card (`opengraph-image.tsx`) shows risk level plus score plus a short signature, so a pasted link unfurls into a risk preview (`metadataBase` comes from `NEXT_PUBLIC_SITE_URL`). The home page links straight to it via "Open shareable permalink."
 
-**A passing regression suite.** `npm test` runs `tests/heuristics.test.ts` via `tsx`. That is 10 deterministic checks proving: a sell-via-DEX becomes `TOKEN_SWAP` (not HIGH, score < 25); a real drain is HIGH (score ≥ 45); pool and WSOL noise is filtered; the watchlist fires. All pass. The project is now a git repo with a baseline and enhancement history.
+**A passing regression suite.** `npm test` runs `tests/heuristics.test.ts` via `tsx`. That is 10 deterministic checks proving: a sell-via-DEX becomes `TOKEN_SWAP` (not HIGH, score < 25), a real drain is HIGH (score ≥ 45), pool and WSOL noise is filtered, and the watchlist fires. All pass. Pre-sign simulation and metadata enrichment need a live RPC, so they are not in the offline unit suite. I verified them by live integration against mainnet instead. The project is a git repo with a baseline and an enhancement history.
 
 **Toolchain (current):** Node.js 24.16.0 LTS, Next.js 16.2.7, React 19.2.7, TypeScript 6, Tailwind CSS 4.3.0 (CSS-first), `@solana/web3.js` 1.98.4. Agents updated the broader machine toolchain (Rust 1.96.0, Agave/Solana CLI 4.0.1, Anchor 1.0.2), though this web app does not use it.
 
-## 4. Roadmap: pre-sign simulation is the headline milestone
+## 4. Honest limitations of the pre-sign path
 
-The next milestone makes the agent-loop framing literal: let an agent or user review an **unsigned** transaction before approving it. The recipe is de-risked. Accept a base64 unsigned `VersionedTransaction`, call `simulateTransaction({ sigVerify: false, replaceRecentBlockhash: true, innerInstructions: true, accounts: { encoding: 'base64', addresses } })`, derive account deltas via `getMultipleAccountsInfo`, and run the **same** `parse → risk → explain` pipeline. No new risk logic. The safety layer simply moves before the signature. Full deliverables and sequencing live in **`MILESTONES.md`**.
+The pre-sign path is real, but it is not magic, and I want to be precise about its edges. The fee is not computed during simulation, so it is shown as not-applicable. The instruction-type decoder covers SPL Token and System. Other programs' instruction types are not decoded, though the balance, program, and watchlist heuristics still apply. It needs a custom RPC, because public RPC rate-limits simulate-with-accounts. And because the blockhash is replaced, the real result after signing can differ if on-chain state changes before you submit.
 
-## 5. The ask & honest caveats
+## 5. Roadmap: what's next
 
-A modest ~200 USDG to take this from a tuned PoC to a genuinely useful public tool: ship pre-sign simulation, expand the program registry and watchlist (only from citable sources), harden the client-supplied `rpcUrl` passthrough toward a production allowlist, and broaden LLM coverage.
+Pre-sign simulation and token metadata enrichment are both done. They are no longer promises in this section. The remaining milestones build on top of them. Estimates are in days, at agent pace.
 
-**Stated plainly:** heuristics are best-effort signals, not guarantees. The watchlist is curated and non-exhaustive, not financial advice. Public RPC rate-limits and prunes old transactions (a custom RPC is supported). The `rpcUrl` passthrough ships with a baseline SSRF guard, but a production allowlist is still recommended. There is no persistence. Always verify on a trusted block explorer before acting.
+- **Deepen the LLM guardrails.** Tighten the prompt contract, add structured output validation, and stress-test the explanation against adversarial transactions so it can't be talked into a wrong summary. (~2 days.)
+- **Richer program/IDL labeling plus a CPI tree view.** Resolve more programs to names and instruction shapes from IDLs, then render the inner-instruction tree as an actual tree instead of a flat list. (~3 days.)
+- **Expanded heuristics, watchlist growth, and hardening.** Add rules for more drain patterns, grow the watchlist only from citable sources, and move the client-supplied `rpcUrl` passthrough from its baseline SSRF guard toward a production allowlist. (~3 days.)
 
-## 6. Links & contact
+Full deliverables and sequencing live in **`MILESTONES.md`**.
+
+## 6. The ask & honest caveats
+
+A modest ~200 USDG to take this from a tuned PoC to a genuinely useful public tool. Pre-sign simulation already ships. The grant funds the rest: deepen LLM coverage and guardrails, add program/IDL labeling and a CPI tree view, expand the program registry and watchlist (only from citable sources), and harden the client-supplied `rpcUrl` passthrough toward a production allowlist.
+
+**Stated plainly:** heuristics are best-effort signals, not guarantees. The watchlist is curated and non-exhaustive, not financial advice. Public RPC rate-limits and prunes old transactions (a custom RPC is supported, and the pre-sign path needs one). The `rpcUrl` passthrough ships with a baseline SSRF guard, but a production allowlist is still recommended. There is no persistence. Always verify on a trusted block explorer before acting.
+
+## 7. Links & contact
 
 - **Repository:** https://github.com/plutohan/solana-agentic-tx-reviewer (public)
 - **Roadmap:** see `MILESTONES.md` in this repo.
@@ -58,4 +78,4 @@ A modest ~200 USDG to take this from a tuned PoC to a genuinely useful public to
 
 ---
 
-*This is a read-only proof-of-concept. It analyzes transactions, but it never signs or sends them. Risk heuristics and the watchlist are best-effort signals, not security guarantees or financial advice.*
+*This is a read-only proof-of-concept. It analyzes and simulates transactions, but it never signs or sends them. Risk heuristics and the watchlist are best-effort signals, not security guarantees or financial advice.*

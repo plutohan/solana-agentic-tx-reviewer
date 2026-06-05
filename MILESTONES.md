@@ -2,12 +2,12 @@
 
 **Project:** Solana Agentic Transaction Reviewer
 **Grant:** Superteam Agentic Engineering micro-grant (~200 USDG, Solana Earn)
-**Status:** Working build. The check that runs before a transaction gets signed. See [Current Status](#1-current-status-what-is-done-today).
+**Status:** Working build, with pre-sign simulation shipped and verified live. The check that runs before a transaction gets signed. See [Current Status](#1-current-status-what-is-done-today).
 **Scope discipline:** read-only analysis only. No new protocol. No signing or sending of transactions.
 
-This is the delivery plan for the grant. It starts with the agentic-engineering framing (why this matters and how it was built), states plainly what exists today, then lays out an incremental roadmap (M1 to M4) with pre-sign simulation as the headline next milestone. After that come a timeline, a budget mapping for a micro-grant, and a risk register.
+This is the delivery plan for the grant. It opens with the agentic-engineering framing (why this matters and how it was built), states plainly what exists today, then lays out an incremental roadmap with the remaining milestones. After that come a timeline, a budget mapping for a micro-grant, and a risk register. The headline feature, reviewing an unsigned transaction before it is signed, is built and verified, so it now lives in Current Status rather than the roadmap.
 
-A note on pace before the estimates below. The entire working reviewer in section 1 was built in a single session of about three hours, with agents doing most of the heavy lifting. That is the whole point of agentic engineering, and it is why the milestones that follow are measured in days, not weeks.
+A note on pace before the estimates below. The entire working reviewer in section 1, including the pre-sign path, was built across a couple of short sessions, with agents doing most of the heavy lifting. That is the whole point of agentic engineering, and it is why the milestones that follow are measured in days, not weeks.
 
 ---
 
@@ -19,46 +19,48 @@ A note on pace before the estimates below. The entire working reviewer in sectio
 agent proposes a transaction → reviewer judges it (parse → heuristics → explanation) → human or agent approves
 ```
 
-The reviewer is deterministic where it has to be. The risk score is a pure function of the on-chain facts. It is explainable everywhere else. Every finding carries human-readable evidence, and the natural-language layer is told to use only the provided facts. That makes the output safe to put in front of an automated approver. A swap reads LOW, a real drainer reads HIGH, and the reasoning is auditable.
+The reviewer is deterministic where it has to be. The risk score is a pure function of the on-chain facts. It is explainable everywhere else. Every finding carries human-readable evidence, and the natural-language layer is told to use only the provided facts. That makes the output safe to put in front of an automated approver. A swap reads LOW, a real drainer reads HIGH, and the reasoning is auditable. With the pre-sign path now live, that same judgment runs on an unsigned transaction before it is approved, which is the moment that matters most.
 
 **Built with agents.** A multi-agent workflow scaffolded, documented, and adversarially reviewed this codebase:
 
 - A research-agent discovery pass confirmed the program IDs now in the registry (PumpSwap, pump.fun Fee, Raydium CLMM/CPMM, Meteora DLMM/DAMM v2, Phoenix, Lifinity v2, Jupiter v4, Jito Tip) and de-risked the heuristics. The signer-scoping and swap-aware fixes below came straight out of that review.
 - Agents updated the toolchain to current (Node 24.16.0, Rust 1.96.0, Agave 4.0.1, Anchor 1.0.2) and the web stack (Next 16, React 19, TS 6, Tailwind 4).
-- The pre-sign-simulation recipe in [M1](#m1-pre-sign-simulation-headline) was de-risked the same way: researched, sketched, and reduced to a concrete RPC recipe before any code gets written.
+- The pre-sign-simulation recipe was de-risked the same way before any code was written. It was researched, sketched, reduced to a concrete RPC recipe, then built and verified live against mainnet (details in [section 1](#1-current-status-what-is-done-today)).
 
 ---
 
 ## 1. Current Status: what is done today
 
-A working Next.js (App Router) web app. A user or an agent supplies a transaction signature. The app fetches the transaction read-only over Solana RPC, normalizes it into a shared data model, runs deterministic risk heuristics, and renders a human-readable explanation plus a risk report. The same pipeline also backs a server-rendered shareable permalink.
+A working Next.js (App Router) web app. A user or an agent supplies either a confirmed transaction signature or a base64 unsigned transaction. The app either fetches the confirmed transaction read-only over Solana RPC, or simulates the unsigned one read-only, normalizes the result into a shared data model, runs deterministic risk heuristics, and renders a human-readable explanation plus a risk report. The same pipeline also backs a server-rendered shareable permalink for confirmed reviews.
 
 The full pipeline is live end-to-end:
 
 ```
-RPC fetch → parse() → assessRisk() → explainTransaction() → ReviewResult
+(RPC fetch | simulate) → parse() → enrich → assessRisk() → explainTransaction() → ReviewResult
 (served by POST /api/review AND by GET /tx/<signature>)
 ```
 
 ### What actually works
 
-- **Read-only RPC layer** (`src/lib/solana.ts`): the app only ever calls `getParsedTransaction` (with `maxSupportedTransactionVersion: 0`, `commitment: "confirmed"`). There is no code path that signs or submits anything. `resolveRpcUrl()` picks an endpoint with the precedence `request.rpcUrl > SOLANA_RPC_URL (mainnet only) > public cluster default`. `isValidSignature()` does cheap base58 structural validation before any network call. `assertSafeRpcUrl()` is a baseline SSRF guard (http(s) only; loopback/private/metadata hosts rejected) on any client-supplied URL.
-- **Deterministic extraction** (`src/lib/parse.ts`): `parseTransaction(raw, signature, cluster)` normalizes the raw RPC response into the `ParsedTransaction` model. It computes per-account SOL deltas (post minus pre balances), SPL token balance changes (from `pre`/`postTokenBalances`, including each account's `owner`), flattens top-level **and** inner (CPI) instructions into one list, and aggregates `programsInvoked` with counts. Everything downstream reads only this normalized shape.
-- **Shared data model / contract** (`src/lib/types.ts`): `ReviewRequest`, `AccountSummary`, `InstructionSummary`, `TokenBalanceChange`, `ProgramInvocation`, `ParsedTransaction`, `RiskLevel`, `RiskFinding`, `RiskReport`, `AiExplanation`, and `ReviewResult`. The UI, the API, the permalink, the risk engine, and the LLM all speak this one contract.
-- **Program registry** (`src/lib/programs.ts`): a curated map of well-known program IDs to `{ name, category }`, covering System, SPL Token, SPL Token-2022, Associated Token Account, Compute Budget, Memo (v1 + current), BPF loaders, Stake, Vote, Metaplex Token Metadata, **and a research-confirmed DeFi set**: Jupiter Aggregator v6 **and v4**, Raydium AMM v4 / **CLMM** / **CPMM**, Orca Whirlpools, pump.fun (bonding curve) + **pump.fun Fee**, **PumpSwap AMM**, **Meteora DLMM** + **DAMM v2**, **Phoenix**, **Lifinity v2**, and **Jito Tip Payment**. Exposes `resolveProgram()`, `isKnownProgram()`, the `WSOL_MINT` constant, a `DEX_PROGRAM_IDS` set, and `isDexProgram()`.
-- **Deterministic risk engine** (`src/lib/heuristics.ts`): **18** pure-function rules that emit explainable `RiskFinding`s with evidence (up from 16, adding `TOKEN_SWAP` and `FLAGGED_ADDRESS`). Score and level aggregation are deterministic (details in the [scoring](#risk-scoring-as-implemented-in-srclibheuristicsts) section and rules table below). These are explicitly **signals, not a verdict**. The major tuning shipped this round:
-  - **Signer-scoped drain/outflow.** `FULL_TOKEN_ACCOUNT_DRAIN` and `LARGE_TOKEN_OUTFLOW` now only fire on token accounts **owned by a signer**. Pool/vault accounts (owned by program PDAs) routinely zero out during a swap, so they are ignored. That killed the biggest false positive, where a routine Jupiter/PumpSwap swap read HIGH "fully drained" off a *pool* account.
-  - **Wrapped SOL excluded.** WSOL (`So111…112`) is skipped by the token drain/outflow rules. It is transient (wrap/unwrap) and the native-SOL rules already cover it.
-  - **`TOKEN_SWAP` (new, low).** Defensively **relabels** a would-be full-drain or large-outflow when the *same signer* received non-dust value back (a different-mint token inflow `> 1` base unit, or net SOL `> 0.001`) **and** a known DEX program is present. That is consistent with a swap or position exit, not a drain. An undefined owner or a dusted fake inflow fails safe to the higher-risk drain finding.
-  - **`FLAGGED_ADDRESS` (new, from `src/lib/watchlist.ts`).** A curated, **best-effort, non-exhaustive, not-financial-advice** watchlist. Seeded honestly with only the well-known SOL burn/incinerator address (`FLAGGED_ADDRESSES`). The same mechanism matches flagged program IDs (`FLAGGED_PROGRAMS`, intentionally empty to avoid false accusations). `lookupWatch()` is fully wired so the list grows without code changes.
+- **Pre-sign simulation** (`src/lib/presign.ts`): the headline feature. Review an unsigned transaction before approving it. The flow accepts a base64-serialized `VersionedTransaction`, deserializes it, resolves any address lookup tables (v0), then simulates read-only with `connection.simulateTransaction(vtx, { sigVerify: false, replaceRecentBlockhash: true, innerInstructions: true, accounts: { encoding: "base64", addresses: writableAccounts } })`. It derives SOL and SPL token deltas by diffing the pre-state (`getMultipleAccountsInfo`) against the simulated post-state (token amount = u64 LE at byte 64, mint decimals from the mint account at byte 44). It recovers SPL Token and System instruction TYPES from the raw instruction data with a small discriminator decoder, so the same `parsedType`-dependent heuristics (setAuthority, approve, closeAccount, createAccount, and the rest) still fire. It emits the SAME `ParsedTransaction` the confirmed path produces, with `simulated: true`, so the risk engine, the explanation, and the UI are unchanged. I verified this live. An unsigned transfer to the burn/incinerator address simulated successfully, showed SOL deltas of -0.001005 (the payer, fee included) and +0.001 (the burn), and the `FLAGGED_ADDRESS` watchlist rule fired before anything was signed. Nothing is ever signed or sent. Simulation only.
+- **Token metadata enrichment** (`src/lib/metadata.ts`): resolves a mint to `{ symbol, name, logoURI }` via a small known-token registry (SOL/USDC/USDT/BONK/JUP/WIF/JTO) plus a cached, best-effort Jupiter datapi lookup (`https://datapi.jup.ag/v1/assets/search?query=<mint>`), with graceful fallback to the raw mint when a token is unknown or the endpoint is unreachable. Token tables and the explanation now show "USDC" and a logo instead of a raw mint and a base-unit delta. `enrichTokenMetadata()` runs inside `reviewTransaction()` for BOTH paths and never throws.
+- **Read-only RPC layer** (`src/lib/solana.ts`): the confirmed path only ever calls `getParsedTransaction` (with `maxSupportedTransactionVersion: 0`, `commitment: "confirmed"`), and the pre-sign path only ever simulates. There is no code path that signs or submits anything. `resolveRpcUrl()` picks an endpoint with the precedence `request.rpcUrl > SOLANA_RPC_URL (mainnet only) > public cluster default`. `isValidSignature()` does cheap base58 structural validation before any network call. `assertSafeRpcUrl()` is a baseline SSRF guard (http(s) only, with loopback/private/metadata hosts rejected) on any client-supplied URL.
+- **Deterministic extraction** (`src/lib/parse.ts`): `parseTransaction(raw, signature, cluster)` normalizes the raw RPC response into the `ParsedTransaction` model. It computes per-account SOL deltas (post minus pre balances), SPL token balance changes (from `pre`/`postTokenBalances`, including each account's `owner`), flattens top-level AND inner (CPI) instructions into one list, and aggregates `programsInvoked` with counts. Everything downstream reads only this normalized shape. The pre-sign path builds the same shape from simulation output.
+- **Shared data model / contract** (`src/lib/types.ts`): `ReviewRequest`, `AccountSummary`, `InstructionSummary`, `TokenBalanceChange`, `ProgramInvocation`, `ParsedTransaction`, `RiskLevel`, `RiskFinding`, `RiskReport`, `AiExplanation`, and `ReviewResult`. The UI, the API, the permalink, the risk engine, and the LLM all speak this one contract. `ReviewRequest` now accepts `signature` OR `rawTransaction` (exactly one). New fields landed this round: `ReviewRequest.rawTransaction`, `ParsedTransaction.simulated`, and `TokenBalanceChange.symbol` / `name` / `logoURI`.
+- **Program registry** (`src/lib/programs.ts`): a curated map of well-known program IDs to `{ name, category }`, covering System, SPL Token, SPL Token-2022, Associated Token Account, Compute Budget, Memo (v1 + current), BPF loaders, Stake, Vote, Metaplex Token Metadata, AND a research-confirmed DeFi set: Jupiter Aggregator v6 AND v4, Raydium AMM v4 / CLMM / CPMM, Orca Whirlpools, pump.fun (bonding curve) + pump.fun Fee, PumpSwap AMM, Meteora DLMM + DAMM v2, Phoenix, Lifinity v2, and Jito Tip Payment. Exposes `resolveProgram()`, `isKnownProgram()`, the `WSOL_MINT` constant, a `DEX_PROGRAM_IDS` set, and `isDexProgram()`.
+- **Deterministic risk engine** (`src/lib/heuristics.ts`): **18** pure-function rules that emit explainable `RiskFinding`s with evidence (up from 16, adding `TOKEN_SWAP` and `FLAGGED_ADDRESS`). Score and level aggregation are deterministic (details in the [scoring](#risk-scoring-as-implemented-in-srclibheuristicsts) section and rules table below). These are explicitly **signals, not a verdict**. The major tuning that shipped:
+  - **Signer-scoped drain/outflow.** `FULL_TOKEN_ACCOUNT_DRAIN` and `LARGE_TOKEN_OUTFLOW` now only fire on token accounts owned by a signer. Pool/vault accounts (owned by program PDAs) routinely zero out during a swap, so they are ignored. That killed the biggest false positive, where a routine Jupiter/PumpSwap swap read HIGH "fully drained" off a *pool* account.
+  - **Wrapped SOL excluded.** WSOL (`So111…112`) is skipped by the token drain/outflow rules. It is transient (wrap/unwrap), and the native-SOL rules already cover it.
+  - **`TOKEN_SWAP` (low).** Defensively relabels a would-be full-drain or large-outflow when the *same signer* received non-dust value back (a different-mint token inflow `> 1` base unit, or net SOL `> 0.001`) AND a known DEX program is present. That is consistent with a swap or position exit, not a drain. An undefined owner or a dusted fake inflow fails safe to the higher-risk drain finding.
+  - **`FLAGGED_ADDRESS` (from `src/lib/watchlist.ts`).** A curated, **best-effort, non-exhaustive, not-financial-advice** watchlist. Seeded honestly with only the well-known SOL burn/incinerator address (`FLAGGED_ADDRESSES`). The same mechanism matches flagged program IDs (`FLAGGED_PROGRAMS`, intentionally empty to avoid false accusations). `lookupWatch()` is fully wired, so the list grows without code changes. This is the rule I watched fire during the live pre-sign test.
   - **Scoring de-saturation.** `assessRisk()` now de-dupes same-id findings (`dedupeFindings`, merging evidence and tagging `×N`) and applies **diminishing returns** (the k-th finding at a level adds `weight * 0.5^k`, via `computeScore`). A routine busy swap reads LOW. A real, *stacked* drainer stays HIGH. `LEVEL_WEIGHT` is unchanged (`info 0 / low 10 / medium 25 / high 45`).
-- **Real LLM explanation seam** (`src/lib/ai.ts`): `explainTransaction(tx, risk)` now genuinely calls **Anthropic or OpenAI** behind the dual-provider seam, gated on `AI_PROVIDER` plus the matching key, and maps the model's JSON into the existing `AiExplanation` shape (no schema change). The default is a **free, deterministic placeholder**, and **any** error (missing key, network, rate limit, bad JSON) degrades gracefully back to it, so the app always works and stays free by default. Anthropic requests apply **prompt caching** to the static system prompt (`cache_control: ephemeral`). The system prompt tells the model to use *only* the provided facts. The "agentic" claim is substantiated the moment a key is configured. Zero-key still works.
+- **Real LLM explanation seam** (`src/lib/ai.ts`): `explainTransaction(tx, risk)` genuinely calls **Anthropic or OpenAI** behind the dual-provider seam, gated on `AI_PROVIDER` plus the matching key, and maps the model's JSON into the existing `AiExplanation` shape (no schema change). The default is a **free, deterministic placeholder**, and **any** error (missing key, network, rate limit, bad JSON) degrades gracefully back to it, so the app always works and stays free by default. Anthropic requests apply **prompt caching** to the static system prompt (`cache_control: ephemeral`). The system prompt tells the model to use *only* the provided facts. The prompt is mode-aware. A simulated transaction is framed as an unsigned, not-yet-executed transaction. Zero-key still works.
   - Env: `AI_PROVIDER=anthropic|openai`, `ANTHROPIC_API_KEY` / `ANTHROPIC_MODEL` (default `claude-haiku-4-5-20251001`), `OPENAI_API_KEY` / `OPENAI_MODEL` (default `gpt-4o-mini`).
-- **Orchestration + API** (`src/lib/review.ts`, `src/app/api/review/route.ts`): `reviewTransaction(request)` runs the pipeline and throws a typed `ReviewError(status)` for clean HTTP mapping (400 invalid signature, 404 not found, 502 RPC error, 500 unexpected). `POST /api/review` runs on the Node.js runtime, since `@solana/web3.js` needs Node APIs.
-- **Shareable permalink + OG card** (`src/app/tx/[signature]/page.tsx`, `src/app/tx/[signature]/opengraph-image.tsx`): `GET /tx/<signature>?cluster=…` server-renders the **full** `reviewTransaction` pipeline and reuses `ResultView` / `RiskBadge`, with **zero new risk logic**. A Next 16 `ImageResponse` OG card (risk level + score + short signature + a one-line summary) makes a pasted link unfurl into a risk preview. `metadataBase` comes from `NEXT_PUBLIC_SITE_URL` (it falls back to `http://localhost:3000`, in `src/app/layout.tsx`). The home page (`src/app/page.tsx`) now surfaces an "Open shareable permalink ↗" link.
-- **UI** (`src/app/page.tsx`, `src/components/ResultView.tsx`, `src/components/RiskBadge.tsx`): a client form for signature input, cluster select, and an optional custom RPC URL, rendering the parsed transaction, risk findings, and explanation.
-- **Regression tests** (`tests/heuristics.test.ts`, run via `npm test` then `tsx`): **10** deterministic checks that pin the tuning above and need no live RPC. A DEX sell relabels to `TOKEN_SWAP` (not HIGH, score `< 25`). A genuine drain is `FULL_TOKEN_ACCOUNT_DRAIN` / HIGH / score `≥ 45`. A pool/vault (non-signer) zero-out is ignored. A signer WSOL outflow is ignored. The burn-address watchlist fires. All pass. `tsx` is a dev dependency.
-- **Git.** The project is a git repository (a baseline commit plus this enhancement round) and is public at https://github.com/plutohan/solana-agentic-tx-reviewer.
+- **Orchestration + API** (`src/lib/review.ts`, `src/app/api/review/route.ts`): `reviewTransaction(request)` runs the pipeline and throws a typed `ReviewError(status)` for clean HTTP mapping (400 invalid input, 404 not found, 502 RPC error, 500 unexpected). It routes on the input: a `rawTransaction` triggers the pre-sign path (`simulateAndReview`, whose `PresignError` maps to `ReviewError`), and a `signature` triggers the confirmed path. `POST /api/review` with `{ rawTransaction: <base64> }` runs the simulation. It runs on the Node.js runtime, since `@solana/web3.js` needs Node APIs.
+- **Shareable permalink + OG card** (`src/app/tx/[signature]/page.tsx`, `src/app/tx/[signature]/opengraph-image.tsx`): `GET /tx/<signature>?cluster=…` server-renders the **full** `reviewTransaction` pipeline and reuses `ResultView` / `RiskBadge`, with **zero new risk logic**. A Next 16 `ImageResponse` OG card (risk level + score + short signature + a one-line summary) makes a pasted link unfurl into a risk preview. `metadataBase` comes from `NEXT_PUBLIC_SITE_URL` (it falls back to `http://localhost:3000`, in `src/app/layout.tsx`). The home page surfaces an "Open shareable permalink ↗" link, shown only for confirmed reviews.
+- **UI** (`src/app/page.tsx`, `src/components/ResultView.tsx`, `src/components/RiskBadge.tsx`): a client form with a "Confirmed signature" / "Unsigned tx (pre-sign)" toggle (a textarea for the base64 tx), a cluster select, and an optional custom RPC URL. `ResultView` renders the parsed transaction, risk findings, and explanation. It shows token symbols, plus a "SIMULATED" badge and "Would succeed / Would fail" on the pre-sign path. The shareable permalink is shown only for confirmed reviews.
+- **Regression tests** (`tests/heuristics.test.ts`, run via `npm test` then `tsx`): **10** deterministic checks that pin the tuning above and need no live RPC. A DEX sell relabels to `TOKEN_SWAP` (not HIGH, score `< 25`). A genuine drain is `FULL_TOKEN_ACCOUNT_DRAIN` / HIGH / score `≥ 45`. A pool/vault (non-signer) zero-out is ignored. A signer WSOL outflow is ignored. The burn-address watchlist fires. All pass. `tsx` is a dev dependency. The pre-sign and metadata paths need a live RPC, so they were verified by live integration against mainnet rather than in the offline unit suite.
+- **Git.** The project is a git repository (a baseline commit plus the enhancement rounds) and is public at https://github.com/plutohan/solana-agentic-tx-reviewer.
 
 ### Toolchain (brought current as part of this project)
 
@@ -69,8 +71,8 @@ RPC fetch → parse() → assessRisk() → explainTransaction() → ReviewResult
 | Next.js (App Router) | 16.2.7 |
 | React | 19.2.7 |
 | TypeScript | 6.0.3 |
-| Tailwind CSS | 4.3.0 (CSS-first: `@import "tailwindcss"` + `@tailwindcss/postcss`; **no** `tailwind.config.js`) |
-| `@solana/web3.js` | 1.98.4 (the v1 line; v2 lives on as `@solana/kit` 6.x, noted as a future option) |
+| Tailwind CSS | 4.3.0 (CSS-first: `@import "tailwindcss"` + `@tailwindcss/postcss`, with **no** `tailwind.config.js`) |
+| `@solana/web3.js` | 1.98.4 (the v1 line. v2 lives on as `@solana/kit` 6.x, noted as a future option) |
 
 The broader Solana dev toolchain on the machine is also current (Rust 1.96.0, Agave/Solana CLI 4.0.1, Anchor 1.0.2), though **none of these are used by this read-only web app**. The environment was simply brought up to date by agents, for completeness.
 
@@ -103,7 +105,7 @@ The broader Solana dev toolchain on the machine is also current (Rust 1.96.0, Ag
 | `COMPUTE_BUDGET_SET` | info | Compute Budget program used |
 | `MEMO_PRESENT` | info | Memo program used |
 
-*(Wrapped SOL is excluded from the token-movement rules above; native-SOL rules cover it.)*
+*(Wrapped SOL is excluded from the token-movement rules above. The native-SOL rules cover it.)*
 
 ### Honest limitations (today)
 
@@ -113,51 +115,17 @@ The broader Solana dev toolchain on the machine is also current (Rust 1.96.0, Ag
 - **Public RPC rate-limits and prunes old transactions.** A custom RPC URL (per request or via `SOLANA_RPC_URL`) works around this.
 - **The `rpcUrl` passthrough lets the server fetch a client-supplied URL.** The baseline SSRF guard (`assertSafeRpcUrl`) ships today. A positive host allowlist remains for production.
 - **No persistence, no auth.** Reviews are computed on demand.
-- **Post-hoc only, for now.** Today the reviewer judges a *confirmed* signature. Reviewing an *unsigned* transaction before approval is [M1](#m1-pre-sign-simulation-headline) below.
+- **The pre-sign path has its own honest limits.** The fee is not computed during simulation, so the UI shows it as not-applicable. The instruction-type decoder covers SPL Token and System only. Other programs' instruction types are not decoded, though the balance, program, and watchlist heuristics still apply. It needs a custom RPC, because public RPC rate-limits simulate-with-accounts. And because the blockhash is replaced, the real result after signing can differ if on-chain state changes before submission.
 
 ---
 
-## 2. Milestones
+## 2. Roadmap (next milestones)
 
-Estimates reflect the agent-assisted pace this project was actually built at (the whole M0 reviewer took one session of roughly three hours), so they are in days. Each milestone ships independently and builds on the existing contract in `src/lib/types.ts`. **M0 (the working reviewer above) is done.** **M1, pre-sign simulation, is the headline next milestone.**
+M1 (pre-sign simulation) is shipped and lives in [section 1](#1-current-status-what-is-done-today) above, along with token metadata enrichment. What follows is the remaining work. Estimates reflect the agent-assisted pace this project was actually built at, so they are in days. Each milestone ships independently and builds on the existing contract in `src/lib/types.ts`.
 
-### M0: Working reviewer (DONE)
+### N1: Deepen and harden the LLM guardrails
 
-Everything in [section 1](#1-current-status-what-is-done-today): the read-only pipeline, the 18-rule signer-scoped, swap-aware, de-saturated risk engine, the real dual-provider LLM seam with a free placeholder default, the watchlist, the shareable permalink + OG card, the regression suite, and a public git history.
-
-**Acceptance criteria (met)**
-- Pasting a real mainnet signature returns a parsed transaction, a risk report, and a readable explanation **with no API keys configured** (free placeholder). With `AI_PROVIDER` plus a key, the explanation is genuinely model-generated and `provider`/`model` reflect it.
-- A routine DEX swap reads LOW (relabeled `TOKEN_SWAP`, score `< 25`). A genuine drain reads HIGH (`≥ 45`). Pool/vault and WSOL noise is filtered. The watchlist fires. Proven by `npm test` (10 checks, all passing).
-- `GET /tx/<signature>` server-renders the same review and unfurls with an OG risk card.
-- Invalid signatures, not-found transactions, and RPC failures return the correct HTTP status via `ReviewError`.
-- The full chain runs entirely read-only. No signing or sending code exists.
-
----
-
-### M1: Pre-sign simulation (HEADLINE)
-
-The flagship next step, and the clearest expression of the framing. Move from "review a confirmed signature after the fact" to "review an **unsigned** transaction *before* approving it." This is what lets an agent, or a human using a wallet, see a plain-English explanation and a risk score for a transaction it is *about* to sign, which closes the loop (`propose → review → approve`). **Not built yet. The recipe is de-risked and concrete.**
-
-**Technical approach (de-risked recipe)**
-- Accept a base64 **unsigned** `VersionedTransaction`, in addition to today's confirmed signature.
-- Simulate read-only via `connection.simulateTransaction(tx, { sigVerify: false, replaceRecentBlockhash: true, innerInstructions: true, accounts: { encoding: "base64", addresses } })`, where `addresses` are the writable accounts we want post-state for.
-- Derive balance and account **deltas** from the simulation. Compare the returned post-state against pre-state fetched with `getMultipleAccountsInfo` for the same `addresses` (SOL plus SPL token deltas, mirroring what `parse.ts` computes from `pre`/`post` today).
-- Feed those deltas, the simulated `innerInstructions` (CPI tree), and `logs` through the **same** `parse → assessRisk → explainTransaction` pipeline, with **zero new risk logic**, reusing the `ParsedTransaction` contract and `ResultView`.
-- Surface it as a new input mode (and a programmatic endpoint) so a wallet or agent can submit an unsigned tx and receive the structured `ReviewResult` before deciding to sign.
-
-**Effort:** about 1 to 2 days.
-
-**Acceptance criteria**
-- A user or agent can submit an **unsigned** base64 transaction and receive a risk report plus explanation derived purely from simulation, fully read-only, no signature required.
-- The simulated path produces a `ParsedTransaction` shaped identically to the confirmed path, so all existing heuristics and the explanation layer apply unchanged.
-- Simulation failures (bad blockhash, program error) degrade to a clear, typed error via `ReviewError`.
-- Still no code path signs or submits a transaction. The tool advises. The human or agent decides.
-
----
-
-### M2: Real LLM explanation, deepened
-
-The dual-provider seam is **already wired and shipped** (Anthropic/OpenAI, prompt caching, graceful fallback, see [section 1](#1-current-status-what-is-done-today)). M2 hardens and extends it.
+The dual-provider seam is **already wired and shipped** (Anthropic/OpenAI, prompt caching, mode-aware prompt, graceful fallback, see [section 1](#1-current-status-what-is-done-today)). This milestone hardens and extends it.
 
 **Deliverables**
 - Tighten guardrails: output-length caps (in place), explicit timeouts and retries, and a small cost budget per request.
@@ -170,37 +138,35 @@ The dual-provider seam is **already wired and shipped** (Anthropic/OpenAI, promp
 **Acceptance criteria**
 - With a key set, `provider`/`model` reflect the real provider. With no key, behavior is identical to the free placeholder (no LLM network call).
 - The explanation never asserts an address or amount absent from the data it was given.
-- A provider timeout or error degrades gracefully to the placeholder rather than failing the request (already true; M2 adds the timeout/budget caps and a test).
+- A provider timeout or error degrades gracefully to the placeholder rather than failing the request (already true. This milestone adds the timeout/budget caps and a test).
 
 ---
 
-### M3: Richer parsing & metadata enrichment
+### N2: Richer program/IDL labeling and a CPI tree view
 
-Make the extracted data more legible so both the heuristics and the explanation have more context.
+Token metadata enrichment already shipped (see [section 1](#1-current-status-what-is-done-today)), so symbols, names, and logos render today. This milestone makes the instruction-level data more legible, which gives both the heuristics and the explanation more context.
 
 **Deliverables**
-- **Mint metadata enrichment:** resolve symbol, name, decimals, and logo per `TokenBalanceChange` so the UI shows "-1,250 USDC" instead of a raw mint and base-unit delta.
-- **Program/IDL enrichment:** keep expanding `programs.ts` and best-effort label partially-decoded instructions. Surface friendlier `parsedType` and account roles.
-- **CPI depth and call-tree view:** render the flattened top-level plus inner instruction list as a readable nested tree (the data already distinguishes inner instructions).
-- Caching/memoization for metadata lookups to limit extra RPC/HTTP calls.
+- **Program/IDL enrichment:** keep expanding `programs.ts` and best-effort label partially-decoded instructions. Surface friendlier `parsedType` and account roles. Extend the pre-sign discriminator decoder beyond SPL Token and System so more programs' instruction types are named in the simulated path.
+- **CPI depth and call-tree view:** render the flattened top-level plus inner instruction list as a readable nested tree (the data already distinguishes inner instructions, and the simulated path already carries them).
+- Caching/memoization for any added metadata lookups to limit extra RPC/HTTP calls.
 
-**Effort:** about 1 to 2 days.
+**Effort:** about 1 day.
 
 **Acceptance criteria**
-- Token changes render with human-readable symbols and amounts where metadata is available, and degrade cleanly (raw mint) where it is not.
 - Previously "unrecognized" but well-known instructions are labeled, reducing `UNKNOWN_PROGRAM` noise.
 - Inner/CPI instructions are visibly grouped under their parent.
 - Enrichment is additive. The `ParsedTransaction` contract still validates and all prior behavior is unchanged when lookups fail.
 
 ---
 
-### M4: Expanded heuristics, threat intel & hardening
+### N3: Expanded heuristics, threat intel, and hardening
 
 Increase detection coverage and precision, grow the threat intelligence, and harden the service for shared or production use.
 
 **Deliverables**
 - New or refined rules: suspicious destination concentration, multi-step drain sequences (approve then transfer then close in one tx), Token-2022 transfer-hook / extension red flags, dust/poisoning transfers, and further outflow tuning.
-- **Grow the watchlist** (`src/lib/watchlist.ts`) from public, citable disclosures only, each entry sourced, keeping the "best-effort, not financial advice" framing. The matching mechanism is already live.
+- **Grow the watchlist** (`src/lib/watchlist.ts`) from public, citable disclosures only, with each entry sourced, keeping the "best-effort, not financial advice" framing. The matching mechanism is already live.
 - A simple way to keep lists fresh (a versioned data file or scheduled fetch) with per-finding source attribution.
 - **Hardening:** upgrade the baseline `rpcUrl` SSRF guard (`assertSafeRpcUrl`) to a positive host allowlist, add rate limiting and input limits, and add structured logging and observability.
 - **Persistence:** optional storage of reviews for history, sharing, and de-duplication (the permalink already gives a shareable surface).
@@ -218,34 +184,33 @@ Increase detection coverage and precision, grow the threat intelligence, and har
 
 ## 3. Timeline & budget mapping
 
-The deadline is June 11, 2026 (Asia/Dubai). A micro-grant funds a focused increment, not the whole roadmap. The funded scope is small and credible, and M3 to M4 are the natural follow-on path beyond the grant. Given the pace above, the funded work fits comfortably inside the deadline with room to spare.
+The deadline is June 11, 2026 (Asia/Dubai). A micro-grant funds a focused increment, not the whole roadmap. The headline deliverable is already built. The funded work fits comfortably inside the deadline with room to spare.
 
 ### Primary KPI
 
-A routine DEX swap reviews LOW (score < 25) and a genuine drainer reviews HIGH (score ≥ 45), deterministically, with explainable evidence, and an agent or user can run that same review on an *unsigned* transaction before approving it (M1). This single false-positive-versus-true-positive separation, extended to pre-sign, is the headline outcome the grant is judged on. It is already proven post-hoc by `npm test` (10/10). M1 brings it to the pre-sign moment.
+A routine DEX swap reviews LOW (score < 25) and a genuine drainer reviews HIGH (score ≥ 45), deterministically, with explainable evidence, and an agent or user can run that same review on an *unsigned* transaction before approving it. This single false-positive-versus-true-positive separation, extended to the pre-sign moment, is the headline outcome the grant is judged on. It is proven post-hoc by `npm test` (10/10), and proven pre-sign by a live mainnet integration where an unsigned transfer to the burn address surfaced the SOL deltas and fired the watchlist rule before signing.
 
 ### Timeline (days)
 
 | When | Focus | Milestone |
 | --- | --- | --- |
-| Done | Working reviewer, built in one ~3-hour session (real LLM seam, tuned 18-rule engine, watchlist, permalink, tests, public git) | **M0 delivered** |
-| Day 1 to 2 | Pre-sign simulation of an unsigned tx through the same pipeline | **M1 (headline, funded)** |
-| Day 3 | Deepen and guard the LLM layer; `.env.example` + docs | **M2 (within grant)** |
-| Day 4 to 5 | Mint + program/IDL enrichment; CPI tree view | **M3 (stretch / post-grant)** |
-| Day 6+ | Expanded heuristics, watchlist growth, hardening, persistence | **M4 (post-grant)** |
+| Done | Working reviewer plus pre-sign simulation and metadata enrichment: read-only pipeline, real LLM seam, tuned 18-rule engine, watchlist, permalink, tests, public git, live-verified simulation | **Shipped** |
+| Day 1 | Deepen and guard the LLM layer, with `.env.example` + docs | **N1 (within grant)** |
+| Day 2 | Richer program/IDL labeling and a CPI tree view | **N2 (stretch / post-grant)** |
+| Day 3+ | Expanded heuristics, watchlist growth, hardening, persistence | **N3 (post-grant)** |
 
 ### Budget / scope mapping (~200 USDG)
 
-A ~200 USDG award is treated as a focused bounty, not a salary. The funded commitment is intentionally modest:
+A ~200 USDG award is treated as a focused bounty, not a salary. The headline deliverable (pre-sign simulation) is already shipped and verified, so the funded commitment is intentionally modest:
 
 | Item | Scope | Indicative share |
 | --- | --- | --- |
-| **M1, Pre-sign simulation** | Unsigned-tx simulation through the existing parse → risk → explain pipeline | Primary funded deliverable |
-| **M2, LLM hardening** | Timeout/cost caps, output validation, docs on the already-shipped seam | Secondary, within the grant |
+| **Pre-sign simulation** | Unsigned-tx simulation through the existing parse → risk → explain pipeline (shipped and live-verified) | Primary deliverable, delivered |
+| **N1, LLM hardening** | Timeout/cost caps, output validation, docs on the already-shipped seam | Within the grant |
 | LLM API usage during development | Capped, budgeted test calls. The free placeholder keeps day-to-day cost at zero | Minor |
 | Documentation & demo | README, demo video/GIF, `.env.example`, the shareable permalink | Included |
 
-M3 and M4 are scoped here so reviewers can see the full vision, but they are **not** promised under the micro-grant. They would be pursued as follow-on work. This keeps the commitment honest and achievable.
+N2 and N3 are scoped here so reviewers can see the full vision, but they are **not** promised under the micro-grant. They would be pursued as follow-on work. This keeps the commitment honest and achievable.
 
 ---
 
@@ -253,16 +218,16 @@ M3 and M4 are scoped here so reviewers can see the full vision, but they are **n
 
 | Risk | Likelihood | Impact | Mitigation |
 | --- | --- | --- | --- |
-| **Public RPC rate-limits / prunes old transactions** | High | Medium | Custom RPC supported per-request and via `SOLANA_RPC_URL`. Document recommended providers. Caching in M3. |
-| **LLM hallucination** (invents addresses/amounts/intent) | Medium | High | Strict "use only provided facts" system prompt (in `src/lib/ai.ts`). The deterministic risk score is the source of truth. The explanation is framed as advisory with caveats. Free placeholder default and **graceful fallback on any error**. Output validation tightened in M2. |
+| **Public RPC rate-limits / prunes old transactions** | High | Medium | Custom RPC supported per-request and via `SOLANA_RPC_URL`. The pre-sign path needs one, since public RPC rate-limits simulate-with-accounts. Document recommended providers. Caching in N2. |
+| **LLM hallucination** (invents addresses/amounts/intent) | Medium | High | Strict "use only provided facts" system prompt (in `src/lib/ai.ts`). The deterministic risk score is the source of truth. The explanation is framed as advisory with caveats. Free placeholder default and **graceful fallback on any error**. Output validation tightened in N1. |
 | **Over-trust in heuristics** (users read "low risk" as "safe") | Medium | High | Consistent "signals, not a verdict / not financial advice" disclaimers in `caveats` and the UI. Encourage verification on a trusted explorer. |
-| **False positives** (legit large transfers or swaps, unknown-but-safe programs) | Medium | Medium | Signer-scoped drain rules, swap-aware `TOKEN_SWAP` relabel, WSOL exclusion, and score de-saturation already cut the main offenders. Pinned by `npm test`. Further calibration in M4. |
+| **False positives** (legit large transfers or swaps, unknown-but-safe programs) | Medium | Medium | Signer-scoped drain rules, swap-aware `TOKEN_SWAP` relabel, WSOL exclusion, and score de-saturation already cut the main offenders. Pinned by `npm test`. Further calibration in N3. |
 | **Watchlist false accusation** | Low | High | `src/lib/watchlist.ts` is best-effort, non-exhaustive, and seeded only with the burn address. New entries require a citable public source. Flagged-programs list empty by default. |
-| **SSRF via client-supplied `rpcUrl`** | Low (local) to High (if exposed) | High | Baseline guard `assertSafeRpcUrl` already blocks loopback/private/metadata hosts (http(s) only, 400 on violation). M4 adds a positive host allowlist plus rate limiting before any public deployment. |
-| **LLM API cost overruns** | Low | Medium | Free placeholder is the default. Real provider gated behind `AI_PROVIDER` plus key. Anthropic prompt caching on the system prompt. Length caps now, timeout/budget caps in M2. |
-| **Simulation drift** (M1: blockhash/replace semantics, partial sim) | Medium | Medium | Recipe de-risked (`replaceRecentBlockhash`, `sigVerify:false`, explicit `accounts.addresses`). Deltas derived against `getMultipleAccountsInfo`. Failures map to a typed `ReviewError`. |
+| **SSRF via client-supplied `rpcUrl`** | Low (local) to High (if exposed) | High | Baseline guard `assertSafeRpcUrl` already blocks loopback/private/metadata hosts (http(s) only, 400 on violation). N3 adds a positive host allowlist plus rate limiting before any public deployment. |
+| **LLM API cost overruns** | Low | Medium | Free placeholder is the default. Real provider gated behind `AI_PROVIDER` plus key. Anthropic prompt caching on the system prompt. Length caps now, timeout/budget caps in N1. |
+| **Simulation drift** (pre-sign blockhash/replace semantics, partial sim) | Medium | Medium | The recipe is de-risked and shipped (`replaceRecentBlockhash`, `sigVerify: false`, explicit `accounts.addresses`). Deltas are derived against `getMultipleAccountsInfo`. Failures map to a typed `ReviewError`. The caveat that a replaced blockhash means the post-sign result can differ is surfaced in the explanation. |
 | **Upstream breakage** (web3.js v1 EOL, RPC API drift) | Low | Medium | Pinned versions. `@solana/kit` (v2) noted as a migration path. The thin, isolated RPC layer (`src/lib/solana.ts`) makes swapping cheap. |
-| **Scope creep beyond a micro-grant** | Medium | Medium | M1 (pre-sign) is the only firmly funded deliverable. M2 to M4 are explicitly marked stretch or post-grant. |
+| **Scope creep beyond a micro-grant** | Medium | Medium | The headline deliverable is already shipped. N1 is the only further firmly funded work. N2 to N3 are explicitly marked stretch or post-grant. |
 
 ---
 
