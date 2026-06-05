@@ -321,6 +321,7 @@ The prompt is grounded entirely in deterministically parsed on-chain facts, so t
 
 Most of the big work is shipped, not planned. Pre-sign simulation, token metadata enrichment, the real dual-provider LLM, the public Vercel deploy, the premium UI, the sample generator, and the 24-check test suite are all done and described above. What is left is smaller. Estimates are in days at agent pace.
 
+- **A public review API and SDK for wallets and agents (1 to 2 days).** The most strategic next step. `POST /api/review` already returns a structured `ReviewResult`, so the work is to productize it: a versioned, rate-limited public API, a small npm SDK (`review(signature)` / `review({ rawTransaction })`), and a reference wallet/extension hook that shows the pre-sign verdict before a user approves. This is what makes the reviewer the check other software calls before it signs.
 - **Fund the Anthropic account (trivial).** The integration is already wired and deployed. Adding credits flips Claude explanations on in production. No code change.
 - **Richer program / IDL labeling and a CPI call-tree view (3 to 5 days).** Decode more programs' instruction types. Today the pre-sign decoder covers SPL Token plus System. Other programs' instruction *types* are not decoded, though the balance, program, and watchlist heuristics still apply. Also render the inner-instruction tree as an actual tree in the UI.
 - **Expand heuristics and grow the watchlist (2 to 4 days).** Add rules, and expand the known-program registry and watchlist from citable public sources only.

@@ -62,7 +62,7 @@ Every finding carries human-readable evidence. These are explainable **signals, 
 
 ## 5. An under-crowded niche
 
-I checked. Of 5,428 Colosseum hackathon projects, only 9 are closely related to "review a Solana transaction in plain English and score its risk," the top similarity is just 5.5%, and none of them won a prize. The few that exist are consumer browser extensions, not a read-only review primitive for the agent loop. This niche is under-served, not saturated. The full analysis lives in **`colosseum-crowdedness.md`**.
+I checked. Across 5,428 Colosseum hackathon projects, the closest match to "review a Solana transaction in plain English and score its risk" is only about 5.5% similar and they fall off from there, none of the related projects won a prize, and the few that exist are consumer browser extensions, not a read-only review primitive for the agent loop. This niche is under-served, not saturated. The full analysis lives in **`colosseum-crowdedness.md`**.
 
 ## 6. Honest limitations of the pre-sign path
 
@@ -72,6 +72,7 @@ The pre-sign path is real, but it is not magic, and I want to be precise about i
 
 The MVP already shipped. Pre-sign simulation, token metadata, the real LLM integration, the public Vercel deploy, the premium UI, the sample generator, and the 24-check test suite are all done. The remaining roadmap is smaller, and estimates are in days at agent pace.
 
+- **A public review API and SDK so other wallets and agents can use it.** This is the most strategic next step. `POST /api/review` already returns a structured `ReviewResult`, so the work is to productize it into a versioned, rate-limited public API, a small npm SDK, and a reference wallet hook, so any wallet or agent can request a pre-sign risk verdict in one call. This is what turns the project from an app into infrastructure for the agent loop. (1 to 2 days.)
 - **Turn Claude explanations on in production.** Fund the Anthropic account. The integration is already wired and deployed, so this is the trivial step. (Hours.)
 - **Richer program/IDL labeling plus a CPI call-tree view.** Resolve more programs to names and instruction shapes from IDLs, then render the inner-instruction tree as an actual tree instead of a flat list. (~3 days.)
 - **Expanded heuristics and watchlist growth from citable public sources.** Add rules for more drain patterns, and grow the watchlist only from sources I can cite. (~3 days.)

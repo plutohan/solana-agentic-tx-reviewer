@@ -22,7 +22,7 @@ agent proposes a transaction → reviewer judges it (parse → heuristics → ex
 
 The reviewer is deterministic where it has to be. The risk score is a pure function of the on-chain facts. It is explainable everywhere else. Every finding carries human-readable evidence, and the natural-language layer is told to use only the provided facts. That makes the output safe to put in front of an automated approver. A swap reads LOW, a real drainer reads HIGH, and the reasoning is auditable. With the pre-sign path live in production, that same judgment runs on an unsigned transaction before it is approved, which is the moment that matters most.
 
-**An under-crowded niche.** A Colosseum Copilot scan of 5,428 hackathon projects returned only 9 closely related projects, with a top similarity of just 5.5%, and none of them won a prize. The adjacent work is almost entirely consumer browser extensions. This reviewer is a server-side, deterministic, explainable safety layer aimed at the agent loop, not a wallet plugin. Detail and sources live in `grant-submission/colosseum-crowdedness.md`.
+**An under-crowded niche.** A Colosseum Copilot scan of 5,428 hackathon projects found that the closest match is only about 5.5% similar and they fall off from there, with none of the related projects winning a prize. The adjacent work is almost entirely consumer browser extensions. This reviewer is a server-side, deterministic, explainable safety layer aimed at the agent loop, not a wallet plugin. Detail and sources live in `grant-submission/colosseum-crowdedness.md`.
 
 **Built with agents.** A multi-agent workflow scaffolded, tuned, adversarially reviewed, redesigned, and documented this codebase end-to-end across one working session. The agent session transcript is the proof.
 
@@ -132,7 +132,25 @@ The broader Solana dev toolchain on the machine is also current (Rust 1.96.0, Ag
 
 The headline work is shipped and lives in [section 1](#1-current-status-what-is-done-today): pre-sign simulation, token metadata, the real dual-provider LLM seam, the public Vercel deploy, the premium UI, the sample generator, and the 24-check suite. What follows is the remaining work. Estimates reflect the agent-assisted pace this project was actually built at, so they are in days. Each milestone ships independently and builds on the existing contract in `src/lib/types.ts`.
 
-### N1: Turn Claude on in production and harden the LLM guardrails
+### N1: A public review API and SDK, so other wallets and agents can use it
+
+This is the most strategic next step and the clearest expression of the agent-loop framing. The reviewer should be the check other software calls before it signs. `POST /api/review` already returns a structured `ReviewResult` for either a confirmed signature or an unsigned transaction, so the work is to productize that into something a third party can adopt in minutes.
+
+**Deliverables**
+- A stable, versioned, documented public API (request and response schemas, error codes, an OpenAPI spec) with API keys and rate limiting.
+- A small TypeScript SDK (an npm package) that wraps the API, so a wallet or agent calls `review(signature)` or `review({ rawTransaction })` and gets back a typed `ReviewResult` with no Solana parsing of its own.
+- A reference wallet or browser-extension hook that calls the pre-sign path and shows the risk verdict before the user approves a transaction.
+- Usage docs and a couple of integration examples.
+
+**Effort:** about 1 to 2 days.
+
+**Acceptance criteria**
+- A third-party wallet or agent gets a `ReviewResult` for a signature or an unsigned transaction with one SDK call.
+- The API is versioned and rate-limited, and nothing it exposes ever signs or sends a transaction.
+
+---
+
+### N2: Turn Claude on in production and harden the LLM guardrails
 
 The dual-provider seam is **already wired and deployed** (Anthropic/OpenAI, prompt caching, mode-aware prompt, graceful fallback, see [section 1](#1-current-status-what-is-done-today)). The remaining step to make real Claude explanations live is trivial. Fund the Anthropic account. The key and `AI_PROVIDER=anthropic` are already set in production, and `GET /api/ai-status?test=1` confirms the wiring. This milestone also hardens the seam.
 
@@ -152,7 +170,7 @@ The dual-provider seam is **already wired and deployed** (Anthropic/OpenAI, prom
 
 ---
 
-### N2: Richer program/IDL labeling and a CPI tree view
+### N3: Richer program/IDL labeling and a CPI tree view
 
 Token metadata enrichment already shipped (see [section 1](#1-current-status-what-is-done-today)), so symbols, names, and logos render today. This milestone makes the instruction-level data more legible, which gives both the heuristics and the explanation more context.
 
@@ -170,7 +188,7 @@ Token metadata enrichment already shipped (see [section 1](#1-current-status-wha
 
 ---
 
-### N3: Expanded heuristics, threat intel, and hardening
+### N4: Expanded heuristics, threat intel, and hardening
 
 Increase detection coverage and precision, grow the threat intelligence from public sources, and harden the service for shared or production use.
 
@@ -205,9 +223,10 @@ A routine DEX swap reviews LOW (score < 25) and a genuine drainer reviews HIGH (
 | When | Focus | Milestone |
 | --- | --- | --- |
 | Done | Working reviewer, pre-sign simulation, token metadata, real LLM seam, tuned 18-rule engine, watchlist, permalink + OG card, sample generator, premium UI, 24-check tests, public git, and a **live Vercel deploy** | **Shipped** |
-| Day 1 | Fund Anthropic to turn Claude on, then deepen and guard the LLM layer, with `.env.example` + docs | **N1 (within grant)** |
-| Day 2 | Richer program/IDL labeling and a CPI tree view | **N2 (stretch / post-grant)** |
-| Day 3+ | Expanded heuristics, watchlist growth, hardening, persistence | **N3 (post-grant)** |
+| Day 1 to 2 | A public review API and SDK so other wallets and agents can call it | **N1 (headline, funded)** |
+| Day 2 | Fund Anthropic to turn Claude on, then deepen and guard the LLM layer | **N2 (within grant)** |
+| Day 3 | Richer program/IDL labeling and a CPI tree view | **N3 (stretch / post-grant)** |
+| Day 4+ | Expanded heuristics, watchlist growth, hardening, persistence | **N4 (post-grant)** |
 
 ### Budget / scope mapping (~200 USDG)
 
@@ -216,11 +235,12 @@ A ~200 USDG award is treated as a focused bounty, not a salary. The headline wor
 | Item | Scope | Indicative share |
 | --- | --- | --- |
 | **Pre-sign simulation + deploy** | Unsigned-tx simulation through the existing parse → risk → explain pipeline, live on Vercel and live-verified | Primary deliverable, delivered |
-| **N1, Claude-on + LLM hardening** | Fund Anthropic to serve real Claude in production, then add timeout/cost caps, output validation, docs on the already-shipped seam | Within the grant |
+| **N1, Public review API + SDK** | A versioned public API, an npm SDK, and a reference wallet hook so other wallets and agents can request a pre-sign risk verdict | Headline funded next step |
+| **N2, Claude-on + LLM hardening** | Fund Anthropic to serve real Claude in production, then add timeout/cost caps, output validation, docs on the already-shipped seam | Within the grant |
 | LLM API usage during development | Capped, budgeted test calls. The free placeholder keeps day-to-day cost at zero | Minor |
 | Documentation & demo | README, demo video/GIF, `.env.example`, the live URL, the shareable permalink | Included |
 
-N2 and N3 are scoped here so reviewers can see the full vision, but they are **not** promised under the micro-grant. They would be pursued as follow-on work. This keeps the commitment honest and achievable.
+N3 and N4 are scoped here so reviewers can see the full vision, but they are **not** promised under the micro-grant. They would be pursued as follow-on work. This keeps the commitment honest and achievable.
 
 ---
 
