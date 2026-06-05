@@ -1,6 +1,10 @@
 # Solana Agentic Transaction Reviewer
 
+**Live demo: https://solana-agentic-tx-reviewer.vercel.app**
+
 A small, AI-assisted, **read-only** tool for understanding Solana transactions. You give it a transaction (a confirmed signature, or an unsigned transaction you have not signed yet). The app fetches or simulates it over Solana RPC, pulls out the metadata, accounts, instructions (including inner/CPI calls), and token balance changes, runs a set of deterministic risk heuristics, and writes a plain-English explanation next to a structured risk report.
+
+It is deployed and live. The home page, confirmed-signature review, the pre-sign simulation path, the `/tx/<sig>` permalink, and the dynamic OpenGraph risk card all run in production on Vercel (Next.js 16, server-side Helius RPC).
 
 I built it for Solana users and developers who want to **sanity-check a transaction before or after signing**. It catches wallet drains, surprise delegate approvals, authority handovers, and calls into programs nobody recognizes, and it helps you debug what a transaction actually did.
 
@@ -18,6 +22,8 @@ Think of the reviewer as the review step an agent runs before it signs. An agent
 
 ## Features
 
+- **Live and deployed.** The app is public at **https://solana-agentic-tx-reviewer.vercel.app** (Next.js 16 on Vercel, server-side Helius RPC). I verified the home page, confirmed-signature review, the pre-sign simulation path, the `/tx/<sig>` permalink, and the dynamic OpenGraph risk card all return 200 in production. Deploy notes live in [`DEPLOY.md`](DEPLOY.md): the review routes set `maxDuration = 30`, and the OG `metadataBase` auto-detects `NEXT_PUBLIC_SITE_URL`, then `VERCEL_URL`, then localhost.
+- **"Load a sample" button** ([`src/lib/sample.ts`](src/lib/sample.ts), [`src/app/api/sample/route.ts`](src/app/api/sample/route.ts)). One click and `/api/sample` builds a fresh unsigned transaction (a tiny transfer to the burn address) or fetches a recent confirmed signature from a busy program, then drops it into the active input. The demo never lands on an empty box or a pruned signature. Results link the signature out to [Solscan](https://solscan.io) (`https://solscan.io/tx/<sig>`, with the cluster appended off mainnet).
 - **Two input modes: confirmed signature or unsigned (pre-sign) transaction.** The home page has a toggle. Review a confirmed transaction by signature (post-hoc), or paste a base64-serialized **unsigned** transaction and see what it *would* do before you sign it. Both modes produce the same review.
 - **Pre-sign simulation** ([`src/lib/presign.ts`](src/lib/presign.ts)). The headline feature, built and verified live. It accepts a base64 `VersionedTransaction`, deserializes it, resolves any v0 address lookup tables, and simulates it read-only with `connection.simulateTransaction(vtx, { sigVerify: false, replaceRecentBlockhash: true, innerInstructions: true, accounts: { encoding: "base64", addresses: writableAccounts } })`. It then derives SOL and SPL token deltas by diffing the pre-state (`getMultipleAccountsInfo`) against the simulated post-state (token amount = u64 LE at byte 64, mint decimals from byte 44). A small discriminator decoder recovers SPL Token and System instruction *types* from the raw instruction data, so the same `parsedType`-dependent heuristics still fire (`setAuthority`, `approve`, `closeAccount`, `createAccount`, and the rest). The output is the **same `ParsedTransaction`** the confirmed path produces (with `simulated: true`), so the risk engine, the explanation, and the UI are unchanged. Nothing is ever signed or sent. Simulation only.
 - **Token metadata enrichment** ([`src/lib/metadata.ts`](src/lib/metadata.ts)). Resolves a mint to `{ symbol, name, logoURI }` via a small known-token registry (SOL, USDC, USDT, BONK, JUP, WIF, JTO) plus a cached, best-effort Jupiter datapi lookup (`https://datapi.jup.ag/v1/assets/search?query=<mint>`), with graceful fallback to the raw mint when a token is unknown or the endpoint is unreachable. Token tables and the explanation show e.g. "USDC" and a logo instead of a raw mint and a base-unit delta. `enrichTokenMetadata()` runs in `reviewTransaction()` for **both** paths and never throws.
@@ -32,9 +38,10 @@ Think of the reviewer as the review step an agent runs before it signs. An agent
 - **Swap-aware, signer-scoped heuristics.** Drain/outflow rules fire **only on signer-owned token accounts** (pool/vault PDAs that routinely zero out during swaps are ignored), wrapped SOL is excluded from token rules, and a `TOKEN_SWAP` rule defensively relabels a would-be drain when the **same signer received value back through a known DEX**. This kills the biggest false positive (a routine Jupiter swap previously read HIGH).
 - **Known-address watchlist** ([`src/lib/watchlist.ts`](src/lib/watchlist.ts)). A curated, best-effort, non-exhaustive list that raises a `FLAGGED_ADDRESS` finding (seeded honestly with the SOL burn/incinerator address; flagged program IDs are empty by default to avoid false accusations).
 - **De-saturated scoring.** `assessRisk` dedups same-id findings and applies **diminishing returns** per level so a routine swap reads LOW while a real, stacked drainer stays HIGH.
-- **Real dual-provider LLM behind the seam** ([`src/lib/ai.ts`](src/lib/ai.ts)). The explanation layer genuinely calls **Anthropic or OpenAI** when a key is configured (Anthropic uses prompt caching on the system prompt), with a **free deterministic placeholder default** and graceful fallback on *any* error (missing key, network, rate limit, bad JSON).
+- **Real dual-provider LLM, wired and deployed** ([`src/lib/ai.ts`](src/lib/ai.ts)). The explanation layer genuinely calls **Anthropic (Claude) or OpenAI** when `AI_PROVIDER` plus a matching key are configured (the Anthropic path uses prompt caching on the system prompt). In production `AI_PROVIDER=anthropic` and the key are set, so the integration is live and produces real Claude explanations as soon as the Anthropic account is funded. Until then, and on *any* error (missing key, network, rate limit, bad JSON), it falls back to the **free deterministic placeholder**. So the app is free by default and always works. To be precise: the Claude integration is wired and deployed, it activates when the API account has credits. Claude output is not live in production right now.
 - **Shareable permalink** ([`src/app/tx/[signature]/page.tsx`](src/app/tx/%5Bsignature%5D/page.tsx)). `GET /tx/<signature>?cluster=...` server-renders the full review pipeline, and a Next 16 [`ImageResponse`](src/app/tx/%5Bsignature%5D/opengraph-image.tsx) OG card (risk level + score + short signature) makes a pasted link unfurl into a risk preview. The permalink is for confirmed reviews. A simulated, unsigned transaction has no signature, so no permalink is shown for the pre-sign path.
-- **`npm test` regression suite** ([`tests/heuristics.test.ts`](tests/heuristics.test.ts)). 24 deterministic checks proving swaps stay LOW, real drains stay HIGH, pool/WSOL noise is filtered, and the watchlist fires.
+- **A premium "forensic instrument" UI.** I redesigned the front end around a radial **risk gauge** (a 0 to 100 arc colored by level) as the hero of the report. It uses distinctive type (Bricolage Grotesque plus JetBrains Mono via `next/font`, not system fonts), a single cyan accent, an atmospheric background (dot grid, soft glow, grain), a reticle wordmark, segmented input tabs, and staggered card entrance motion that respects reduced-motion.
+- **`npm test` regression suite** ([`tests/heuristics.test.ts`](tests/heuristics.test.ts), [`tests/lib.test.ts`](tests/lib.test.ts)). 24 deterministic checks: 10 over the risk engine (swaps stay LOW, real drains stay HIGH, pool/WSOL noise is filtered, the watchlist fires) plus 14 over pure helpers (`rawToUi` and the pre-sign instruction decoder). All pass. The pre-sign and metadata paths are also verified by live integration against mainnet.
 - **Cluster + custom RPC support.** Switch between `mainnet-beta`, `devnet`, and `testnet`, and optionally supply your own Helius / QuickNode / Triton endpoint to avoid public-RPC rate limits.
 
 ---
@@ -162,29 +169,31 @@ RPC precedence is: explicit per-request `rpcUrl`, then `SOLANA_RPC_URL` (mainnet
 
 ## Usage
 
+Try it now at **https://solana-agentic-tx-reviewer.vercel.app**. The fastest path is to click **Load a sample** and then **Review**. No input needed.
+
 ### Confirmed signature (post-hoc review)
 
 1. Keep the **Confirmed signature** tab selected.
-2. **Paste a transaction signature** (a base58 string, ~86 to 88 characters) into the input.
+2. **Paste a transaction signature** (a base58 string, ~86 to 88 characters), or click **Load a sample** to fetch a recent confirmed one for you.
 3. **Pick a cluster**: `mainnet-beta`, `devnet`, or `testnet`.
 4. *(Optional)* click **+ custom RPC** and paste your own endpoint to avoid public-RPC rate limits.
-5. Click **Review** and read the result.
+5. Click **Review** and read the result. The signature links out to [Solscan](https://solscan.io) so you can cross-check on a trusted explorer.
 
 ### Unsigned transaction (pre-sign review)
 
 1. Switch to the **Unsigned tx (pre-sign)** tab.
-2. **Paste a base64-serialized unsigned transaction** into the textarea. The app deserializes it, simulates it read-only, and shows what it *would* do if signed and sent now. A custom RPC is recommended here, because public RPC rate-limits simulate-with-accounts.
+2. **Paste a base64-serialized unsigned transaction** into the textarea, or click **Load a sample** to have the server build a fresh one. The app deserializes it, simulates it read-only, and shows what it *would* do if signed and sent now. A custom RPC is recommended here, because public RPC rate-limits simulate-with-accounts.
 3. **Pick a cluster** and click **Review**. The result carries a **SIMULATED** badge, the overview reads **"Would succeed" / "Would fail"** instead of success/failure, and the explanation is framed as "This is a read-only simulation of an unsigned transaction. If signed and sent now, it would..." Honest note: the fee is not computed during simulation (shown as not-applicable), and because the blockhash is replaced, the real result after signing can differ if on-chain state changes before you submit.
 
 ### What you get either way
 
 - **Overview**: status, slot, block time, fee, compute units, fee payer, signer and writable counts. For the pre-sign path the signature, slot, block time, and fee are shown as not-applicable, and the status reads "Would succeed / Would fail."
-- **AI Explanation**: a plain-English narrative plus key-action bullets and caveats. The provider badge shows `placeholder` by default, or `anthropic` / `openai` once a key is configured (see [The AI layer](#the-ai-layer)).
+- **AI Explanation**: a plain-English narrative plus key-action bullets and caveats. The provider badge shows `placeholder` by default, or `anthropic` / `openai` once a funded provider is wired in (the real integration is deployed and switches on when the Anthropic account has credits, see [The AI layer](#the-ai-layer)).
 - **Risk Report**: overall level + score out of 100, a summary line, and each finding with its detail and evidence.
 - **Programs**, **Token Balance Changes** (with token symbols and logos where known), **Instructions** (CPIs indented), **Accounts** (with SOL deltas and roles), and collapsible raw **Program Logs**.
 - *(Confirmed only, optional)* click **Open shareable permalink** to get a `/tx/<sig>` URL you can paste anywhere. It unfurls into a risk-preview card.
 
-**Where to get a confirmed signature:** copy one from a block explorer such as [Solscan](https://solscan.io) or [Solana Explorer](https://explorer.solana.com), or from your wallet's transaction history. **Where to get an unsigned transaction:** serialize a `VersionedTransaction` to base64 (for example from your dApp or agent right before it would prompt for a signature).
+**Where to get a confirmed signature:** click **Load a sample**, or copy one from a block explorer such as [Solscan](https://solscan.io) or [Solana Explorer](https://explorer.solana.com), or from your wallet's transaction history. **Where to get an unsigned transaction:** click **Load a sample** on the unsigned tab, or serialize a `VersionedTransaction` to base64 yourself (for example from your dApp or agent right before it would prompt for a signature).
 
 ---
 
@@ -284,7 +293,7 @@ These are **explainable signals, not a verdict.** They surface the patterns a ca
 `explainTransaction(tx, risk)` produces the natural-language explanation (`summary`, `bullets`, `caveats`, plus `provider` / `model` / `generatedAt`). It runs in one of two modes:
 
 - **Free deterministic placeholder (default).** With no provider or key configured, it composes a plain-English summary, key-action bullets (top SOL moves and token changes), and standing caveats directly from the parsed data and the risk report. So the PoC always works, with **zero keys and zero cost**, returning `provider: "placeholder"`. For a simulated transaction the summary is framed as "This is a read-only simulation of an unsigned transaction. If signed and sent now, it would...", and it adds the caveat that a replaced blockhash means the real result can differ.
-- **Real LLM (when configured).** Set `AI_PROVIDER=anthropic|openai` plus the matching API key and `explainTransaction()` genuinely calls the provider behind the existing seam. It builds the grounded context with `buildPrompt(tx, risk)` (which tells the model whether this is a confirmed transaction or a pre-sign simulation), asks for strict JSON, parses it, and returns a real `AiExplanation`. The Anthropic path uses **prompt caching** on the static system prompt (5-minute TTL). This is what substantiates the "agentic" claim. On **any** error (missing key, network, rate limit, bad JSON) it degrades gracefully back to the placeholder, so the app never breaks.
+- **Real LLM (configured and deployed).** Set `AI_PROVIDER=anthropic|openai` plus the matching API key and `explainTransaction()` genuinely calls the provider behind the existing seam. In production `AI_PROVIDER=anthropic` and the key are already set. It builds the grounded context with `buildPrompt(tx, risk)` (which tells the model whether this is a confirmed transaction or a pre-sign simulation), asks for strict JSON, parses it, and returns a real `AiExplanation`. The Anthropic path uses **prompt caching** on the static system prompt (5-minute TTL). The Claude integration switches on the moment the Anthropic account has credits. Until then, and on **any** error (missing key, network, rate limit, bad JSON), it degrades gracefully back to the placeholder, so the app never breaks. So Claude output is not live in production right now, the free explanation is.
 
 ```
 options.provider  →  process.env.AI_PROVIDER  →  "placeholder"
@@ -310,15 +319,12 @@ The prompt is grounded entirely in deterministically parsed on-chain facts, so t
 
 ## Roadmap
 
-Two of the bigger items are now shipped, not planned: **pre-sign simulation** ([`src/lib/presign.ts`](src/lib/presign.ts)) and **token metadata enrichment** ([`src/lib/metadata.ts`](src/lib/metadata.ts)). They are described above. Estimates below are in days at agent pace.
+Most of the big work is shipped, not planned. Pre-sign simulation, token metadata enrichment, the real dual-provider LLM, the public Vercel deploy, the premium UI, the sample generator, and the 24-check test suite are all done and described above. What is left is smaller. Estimates are in days at agent pace.
 
-- **Deepen the LLM guardrails (2 to 4 days).** Tighten the prompt and add output validation so the narration can never contradict the deterministic facts, with regression fixtures for the explanation layer.
-- **Richer program / IDL labeling and a CPI tree view (3 to 5 days).** Decode more programs' instruction types (today the pre-sign decoder covers SPL Token + System; other programs' instruction *types* are not decoded, though the balance, program, and watchlist heuristics still apply), and render the inner-instruction tree as an actual tree in the UI.
-- **Expand heuristics, grow the watchlist, and harden (2 to 4 days).** Add rules, expand the known-program registry and watchlist from citable public sources only, and tighten the per-request `rpcUrl` guard to a positive host allowlist for production (a baseline SSRF guard already ships; see Disclaimers).
-- **Evaluate migrating from `@solana/web3.js` 1.x to `@solana/kit` 6.x (the v2 line).**
-- **Optional persistence for permalinks** (today `/tx/<sig>` re-derives the review on each request).
-
-> The real-LLM hook is **done**, not a roadmap item. See [The AI layer](#the-ai-layer).
+- **Fund the Anthropic account (trivial).** The integration is already wired and deployed. Adding credits flips Claude explanations on in production. No code change.
+- **Richer program / IDL labeling and a CPI call-tree view (3 to 5 days).** Decode more programs' instruction types. Today the pre-sign decoder covers SPL Token plus System. Other programs' instruction *types* are not decoded, though the balance, program, and watchlist heuristics still apply. Also render the inner-instruction tree as an actual tree in the UI.
+- **Expand heuristics and grow the watchlist (2 to 4 days).** Add rules, and expand the known-program registry and watchlist from citable public sources only.
+- **Harden for scale (2 to 4 days).** Add rate limiting, tighten the per-request `rpcUrl` guard to a positive host allowlist (a baseline SSRF guard already ships, see Disclaimers), and add optional persistence so `/tx/<sig>` does not re-derive the review on each request.
 
 ---
 
@@ -327,7 +333,7 @@ Two of the bigger items are now shipped, not planned: **pre-sign simulation** ([
 - **Not financial, investment, or security advice.** This tool helps you *read* a transaction. It does not certify that one is safe. Heuristics are best-effort **signals**, not guarantees. Always verify on a trusted block explorer before acting.
 - **Simulation is not the final word.** The pre-sign path replaces the blockhash and runs without signature verification, so it reports what a transaction *would* do against current on-chain state. The real result after signing can differ if state changes before you submit, and the fee is not computed during simulation.
 - **Watchlist is best-effort and non-exhaustive.** The flagged-address list ([`src/lib/watchlist.ts`](src/lib/watchlist.ts)) is curated by hand from public sources and is seeded conservatively (the SOL burn address; no flagged programs by default). A *miss* does not mean an address is safe, and entries should only be added with a citable source.
-- **Proof of concept.** No persistence and a small curated program registry. A real LLM is wired in but **off by default** (the explanation is a free deterministic placeholder until you set `AI_PROVIDER` + a key).
+- **Proof of concept.** No persistence and a small curated program registry. The real LLM is wired and deployed, but Claude output is not live in production yet (the explanation is the free deterministic placeholder until the Anthropic account is funded). It also runs free locally until you set `AI_PROVIDER` plus a key.
 - **Read-only by design.** The app only fetches, simulates, and analyzes transactions. It holds no keys and never signs or sends anything.
 - **RPC passthrough.** The server can fetch a client-supplied `rpcUrl`, guarded by `assertSafeRpcUrl()` which requires `http(s)` and blocks loopback / private / link-local (cloud-metadata) hosts. A positive host allowlist is still recommended before any public deployment.
 - **Public RPC limits.** The default mainnet endpoint rate-limits and prunes history, and it rate-limits simulate-with-accounts in particular, so use a dedicated RPC for dependable results (and effectively a requirement for the pre-sign path).

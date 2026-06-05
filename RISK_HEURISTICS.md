@@ -4,6 +4,8 @@ This document is the authoritative specification for the risk engine in the **So
 
 > **What this tool is.** A lightweight, AI-assisted, **read-only** Solana transaction reviewer. You give it a transaction (a confirmed signature, or an unsigned transaction to simulate). The app normalizes it into a shared data model, runs the deterministic heuristics described here, and produces a human-readable explanation plus a risk report. It is a proof-of-concept I built for the Superteam Agentic Engineering micro-grant. It does **not** sign, send, or mutate anything on-chain. Pre-sign *simulation* of an unsigned transaction is now built and shipped (see [§7](#7-pre-sign-simulation-shipped)).
 
+> **These are the rules that run in production.** This is not a spec for a future engine. The same `assessRisk()` and the same 18 heuristics documented here run in the live deployed app and on the pre-sign (simulated) path. One engine, one rule set, both paths. Nothing in §4 is path-specific.
+
 **Pipeline.** `RPC fetch (or simulate) → parse() → enrich → assessRisk() → explainTransaction() → ReviewResult`
 
 The risk engine is the `assessRisk()` step. Its input is a `ParsedTransaction` (see [`src/lib/types.ts`](src/lib/types.ts)). Its output is a `RiskReport`.

@@ -6,6 +6,10 @@
 > metadata, accounts, instructions, and token balance changes, runs deterministic risk heuristics,
 > and produces a human-readable explanation plus a risk report.
 >
+> It is live. The app is deployed at <https://solana-agentic-tx-reviewer.vercel.app> (Next.js 16 on
+> Vercel, server-side RPC). The home page, confirmed-signature review, the pre-sign simulation path,
+> the `/tx/<signature>` permalink, and the dynamic OpenGraph risk card all serve in production.
+>
 > I built this proof-of-concept for the **Superteam Agentic Engineering Grant** (~200 USDG). The
 > scope is deliberately small. It does read-only analysis. There is **no new protocol**, and the app
 > **never signs or sends** anything.
@@ -24,7 +28,9 @@
 8. [The AI seam](#8-the-ai-seam)
 9. [Security & limitations](#9-security--limitations)
 10. [Testing & extension](#10-testing--extension)
-11. [Roadmap](#11-roadmap)
+11. [Sample generator & UI](#11-sample-generator--ui)
+12. [Deployment](#12-deployment)
+13. [Roadmap](#13-roadmap)
 
 ---
 
@@ -445,12 +451,14 @@ the same `ParsedTransaction` the confirmed path produces, with `simulated: true`
    Signature verification is off, the blockhash is replaced, and I ask the RPC to return the
    post-state for the same writable accounts plus the inner instructions.
 
-5. **Diff pre vs post.** Derive SOL deltas (`post.lamports − pre.lamports` per writable account) and
-   SPL token deltas by reading the token account layout directly: the token amount is the u64 LE at
-   byte 64, the mint is bytes 0..32, and the owner is bytes 32..64. For any changed mint I fetch the
-   mint account and read its decimals at byte 44. The resulting `TokenBalanceChange`s are
-   decimal-adjusted with the shared `rawToUi()` helper, so they are indistinguishable from the
-   confirmed path's output.
+5. **Diff pre vs post and estimate the fee.** Derive SOL deltas (`post.lamports − pre.lamports` per
+   writable account) and SPL token deltas by reading the token account layout directly: the token
+   amount is the u64 LE at byte 64, the mint is bytes 0..32, and the owner is bytes 32..64. For any
+   changed mint I fetch the mint account and read its decimals at byte 44. The resulting
+   `TokenBalanceChange`s are decimal-adjusted with the shared `rawToUi()` helper, so they are
+   indistinguishable from the confirmed path's output. The fee is priced best-effort with
+   `connection.getFeeForMessage(message, "confirmed")`. If the RPC cannot price the message (a stale
+   blockhash, say), the fee stays 0 and the UI shows it as unknown.
 
 ### The instruction-type decoder
 
@@ -483,7 +491,8 @@ without a single change.
 
 I want to be straight about the gaps:
 
-- **The fee is not computed during simulation.** The UI shows it as not-applicable rather than
+- **The fee is a best-effort estimate.** It comes from `getFeeForMessage`, not from the executed
+  transaction. If the RPC cannot price the message, the UI shows the fee as unknown rather than
   guessing.
 - **The instruction-type decoder covers SPL Token and System only.** Other programs' instruction
   types are not decoded. The balance, program, and watchlist heuristics still apply to them, but
@@ -572,6 +581,13 @@ and a matching API key is set, it calls a real LLM. On **any** failure (missing 
 limit, bad JSON) it falls back to the deterministic `placeholderExplanation(tx, risk)`. The app
 always returns a valid `AiExplanation`, and it stays free by default.
 
+The real provider call is **wired and deployed**. In production `AI_PROVIDER=anthropic` and the
+Anthropic key are configured, so the path is live. It produces real Claude explanations as soon as
+the Anthropic account has credits. Until then (and on any error) the free deterministic placeholder
+is used, so the app always works and stays free by default. I want to be honest about the state. The
+integration ships and runs in production right now. Claude output turns on the moment the account is
+funded. The same is true for OpenAI behind the same seam.
+
 The placeholder is a template-based `AiExplanation` assembled entirely from the parsed transaction
 and the risk report. It:
 
@@ -596,7 +612,8 @@ invent addresses, amounts, or intent**, which keeps the LLM grounded in the dete
 
 ### Connecting OpenAI / Anthropic
 
-The seam is narrow and already wired. To turn on a real LLM:
+The seam is narrow, wired, and deployed. The provider is `anthropic` in production. Here is the full
+shape of it:
 
 1. **Set the provider.** `AI_PROVIDER=openai` or `AI_PROVIDER=anthropic` (or pass `options.provider`),
    and add the corresponding API key as a server-side env var. The key lives only on the Node
@@ -608,7 +625,8 @@ The seam is narrow and already wired. To turn on a real LLM:
    (`ANTHROPIC_MODEL`) and `gpt-4o-mini` (`OPENAI_MODEL`), both overridable.
 3. **The fallback is automatic.** If no key is configured, or the call fails, or the JSON is
    malformed, the code returns `placeholderExplanation()`. No other module changes, because every
-   consumer reads the same `AiExplanation` contract.
+   consumer reads the same `AiExplanation` contract. In production this is what runs until the
+   Anthropic account is funded. Real Claude output activates with credits.
 
 ### The agentic future
 
@@ -683,8 +701,8 @@ stack trace.
 - **The watchlist is best-effort and non-exhaustive.** It is not financial advice. Entries are added
   only with a citable public source.
 - **No persistence.** Each review is stateless. Nothing is stored.
-- **Pre-sign caveats** apply: no fee in simulation, instruction-type decoding for SPL Token + System
-  only, and a replaced blockhash that can diverge from the real post-sign result. See §5.
+- **Pre-sign caveats** apply: a best-effort fee estimate, instruction-type decoding for SPL Token +
+  System only, and a replaced blockhash that can diverge from the real post-sign result. See §5.
 
 ---
 
@@ -695,8 +713,10 @@ stack trace.
 The architecture is built for testability. Every stage except the I/O boundaries is a **pure
 function** over the shared types, so it can be unit-tested with fixture data and no network.
 
-`npm test` runs `tests/heuristics.test.ts` (via `tsx`), 24 deterministic checks (10 over the risk engine, 14 over pure helpers),
-and they all pass. They prove the behaviors that are hard to verify against live RPC:
+`npm test` runs `tests/heuristics.test.ts` and `tests/lib.test.ts` (both via `tsx`), 24 deterministic
+checks in all. Ten cover the risk engine. Fourteen cover pure helpers (`rawToUi` and the pre-sign
+instruction decoder). They all pass. The risk-engine checks prove the behaviors that are hard to
+verify against live RPC:
 
 - a DEX swap / full position-sell is relabeled `TOKEN_SWAP`, not flagged as a drain,
 - a genuine drain (the signer's own tokens leave, no DEX) is HIGH,
@@ -704,6 +724,10 @@ and they all pass. They prove the behaviors that are hard to verify against live
 - wrapped SOL is excluded from the token-outflow rules,
 - the watchlist flags a known address,
 - and the score no longer saturates on a busy-but-benign swap.
+
+The helper checks in `tests/lib.test.ts` pin the base-unit to decimal conversion (`rawToUi`) and the
+pre-sign discriminator decoder (`decodeIxType` for the SPL Token and System families), the two pure
+pieces the pre-sign path depends on.
 
 The pre-sign and metadata modules were verified by **live integration against mainnet** rather than
 the offline unit suite. Both need a live RPC (and the metadata module hits a live HTTP endpoint), so
@@ -757,12 +781,88 @@ false accusation is harmful, so only add entries backed by a public disclosure.
 
 ---
 
-## 11. Roadmap
+## 11. Sample generator & UI
+
+### The sample generator
+
+A live demo should never land on an empty box or a pruned signature. So there is a **"Load a sample"**
+button, backed by `src/lib/sample.ts` and `GET /api/sample?mode=signature|unsigned`. It produces a
+ready-to-review input on demand:
+
+- **Unsigned mode.** `sampleUnsignedTransaction()` builds a fresh base64 `VersionedTransaction`
+  server-side: a 0.001 SOL transfer from a recently active funded fee payer to the SOL burn address.
+  It always simulates, and it always trips the `FLAGGED_ADDRESS` watchlist rule, so the pre-sign path
+  has something real to show.
+- **Signature mode.** `sampleSignature()` returns a recent successful signature from a busy program
+  (Jupiter or SPL Token), so the confirmed path always has fresh, non-pruned input.
+
+Both modes pick a real, currently-funded payer by scanning recent signatures, which keeps the unsigned
+sample valid against live state. The route degrades to a 502 with a clear message if RPC is
+unavailable. Results link the signature to Solscan so the user can cross-check on an explorer.
+
+### The UI and design direction
+
+The interface is a "forensic instrument", not a generic dashboard. The design choices are
+deliberate:
+
+- **Distinctive type.** Bricolage Grotesque for display and JetBrains Mono for data, loaded via
+  `next/font` (not system fonts), wired in `src/app/layout.tsx`.
+- **A single cyan accent** over an atmospheric background (a dot grid, a soft glow, and grain) set by
+  `.bg-atmosphere` in `globals.css`.
+- **A radial RISK GAUGE** (`src/components/RiskGauge.tsx`) is the hero of the report: a 0 to 100 arc
+  colored by level (info, low, medium, high).
+- **A reticle wordmark** (`src/components/Mark.tsx`), segmented input tabs for the two review modes,
+  and staggered card entrance motion that respects `prefers-reduced-motion`.
+
+The result view (`src/components/ResultView.tsx`) renders the `ReviewResult` directly: the gauge, the
+findings, the token table with resolved symbols, and the explanation. Nothing in the design layer
+reaches into `lib/`. It only reads the shared contract from §3.
+
+---
+
+## 12. Deployment
+
+The app is deployed on **Vercel** and live at <https://solana-agentic-tx-reviewer.vercel.app>. It is
+a standard Next.js 16 app, so Vercel builds it with zero config. `DEPLOY.md` has the step-by-step.
+The essentials:
+
+### Environment variables
+
+All credentials are server-side only. The browser never holds a key.
+
+| Variable | Purpose |
+| --- | --- |
+| `SOLANA_RPC_URL` | The mainnet RPC endpoint (Helius / QuickNode / Triton). Required for the pre-sign demo, since public RPC rate-limits simulate-with-accounts. |
+| `AI_PROVIDER` | `anthropic` (production) or `openai`. Selects the LLM provider. Omit to use the free placeholder. |
+| `ANTHROPIC_API_KEY` | The Anthropic key. With it set and the account funded, real Claude explanations turn on. (`OPENAI_API_KEY` is the OpenAI equivalent.) |
+| `NEXT_PUBLIC_SITE_URL` | Optional. The absolute base URL for OpenGraph cards. Auto-detected if omitted. |
+
+### Serverless settings
+
+The review route, the sample route, and the OG image route all set `export const maxDuration = 30`.
+The pre-sign path makes several RPC round trips (lookup tables, pre-state, simulate, mint decimals)
+plus an optional LLM call, so it needs room beyond the default serverless timeout. The review and
+sample routes also pin `runtime = "nodejs"` and `dynamic = "force-dynamic"`.
+
+### OpenGraph metadataBase auto-detect
+
+`src/app/layout.tsx` resolves the OG `metadataBase` in order: `NEXT_PUBLIC_SITE_URL`, then
+`https://${VERCEL_URL}`, then `http://localhost:3000`. So the dynamic risk card at
+`/tx/<signature>/opengraph-image` unfurls with absolute URLs in production without any manual config.
+The card renders the risk level, the score, and a one-line summary for the pasted signature.
+
+---
+
+## 13. Roadmap
 
 Two big items shipped. The pre-sign simulation (§5) is done, and the token metadata enrichment (§6)
-is done. The real LLM seam is also wired (§8). With those out of the way, the next milestones build
-on the grounded base. Estimates are in days, agent-paced.
+is done. The real LLM seam is wired and deployed (§8). The public Vercel deploy is live (§12). With
+those out of the way, the next milestones build on the grounded base. Estimates are in days,
+agent-paced.
 
+- **Fund the Anthropic account (trivial).** The integration is deployed. This is the one step left to
+  turn live Claude explanations on in production. Add credits, and the placeholder yields to real
+  output with no code change.
 - **Deepen the LLM guardrails (M2, ~2 days).** The provider calls work. Next is hardening: stricter
   output schemas, prompt-injection resistance against hostile memo/log content, and tighter checks
   that the model never asserts a fact absent from `buildPrompt()`.
@@ -771,8 +871,9 @@ on the grounded base. Estimates are in days, agent-paced.
   list as a real parent/child CPI tree instead of the current flattened-with-indent view.
 - **Expand heuristics, grow the watchlist, and harden (M4, ~3 days).** More signals (new-mint /
   freeze-authority checks, suspicious approve patterns), a larger watchlist sourced from public
-  disclosures, the positive-allowlist SSRF tightening from §9, and broadening the pre-sign
-  instruction-type decoder beyond SPL Token + System.
+  disclosures, the positive-allowlist SSRF tightening from §9, rate limiting, a host allowlist,
+  optional persistence, and broadening the pre-sign instruction-type decoder beyond SPL Token +
+  System.
 
 ---
 
