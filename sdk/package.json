@@ -1,0 +1,40 @@
+{
+  "name": "solana-tx-reviewer-sdk",
+  "version": "0.1.0",
+  "description": "TypeScript SDK for the Solana Agentic Transaction Reviewer API. Get a deterministic risk report and a plain-English explanation for any Solana transaction, before or after signing.",
+  "type": "module",
+  "main": "./dist/index.js",
+  "module": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js"
+    }
+  },
+  "files": ["dist", "README.md"],
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "prepublishOnly": "npm run build"
+  },
+  "keywords": [
+    "solana",
+    "transaction",
+    "security",
+    "risk",
+    "wallet",
+    "web3",
+    "pre-sign",
+    "simulation",
+    "agent"
+  ],
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/plutohan/solana-agentic-tx-reviewer"
+  },
+  "homepage": "https://solana-agentic-tx-reviewer.vercel.app",
+  "devDependencies": {
+    "typescript": "^6.0.0"
+  }
+}

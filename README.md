@@ -197,6 +197,32 @@ Try it now at **https://solana-agentic-tx-reviewer.vercel.app**. The fastest pat
 
 ---
 
+## Public API and SDK
+
+The reviewer is also a service other wallets and agents can call before they sign. There is a stable, versioned, CORS-enabled endpoint and a tiny typed SDK.
+
+**Endpoint:** `POST /api/v1/review` with `{ signature }` or `{ rawTransaction }` (base64 unsigned). It is rate limited per IP, supports an optional `x-api-key`, and does not accept a client RPC override. Full reference: [`docs/API.md`](docs/API.md). Machine spec: `GET /api/v1/openapi.json`.
+
+```bash
+curl -s https://solana-agentic-tx-reviewer.vercel.app/api/v1/review \
+  -H 'content-type: application/json' \
+  -d '{"signature":"<sig>","cluster":"mainnet-beta"}'
+```
+
+**SDK** ([`sdk/`](sdk)): `solana-tx-reviewer-sdk`, dependency-free, works in Node 18+ and browsers.
+
+```ts
+import { SolanaTxReviewer } from "solana-tx-reviewer-sdk";
+
+const reviewer = new SolanaTxReviewer();
+const verdict = await reviewer.reviewUnsigned(base64UnsignedTx); // review before signing
+if (verdict.risk.level === "high") block(verdict.risk.findings);
+```
+
+See [`examples/`](examples) for a Node script and a reference wallet pre-sign hook.
+
+---
+
 ## Project structure
 
 ```

@@ -9,6 +9,7 @@ import {
   TOKEN_2022_PROGRAM_ID,
   SYSTEM_PROGRAM_ID,
 } from "../src/lib/programs";
+import { checkRateLimit } from "../src/lib/ratelimit";
 
 let pass = 0;
 let fail = 0;
@@ -53,6 +54,14 @@ check("system 2 -> transfer", sys(2).parsedType === "transfer");
 // Unknown program -> no decode.
 const unknown = decodeIxType("9xQeWvG816bUx9EPjHmaT23yvVM2ZWbrrpZb9PusVFin", Buffer.from([0]));
 check("unknown program -> no program/type", unknown.program === undefined && unknown.parsedType === undefined);
+
+// rate limiter: per-key window with a hard cap; keys are independent.
+const r1 = checkRateLimit("rl-a", 3, 60_000);
+check("ratelimit first call ok, remaining 2", r1.ok && r1.remaining === 2);
+check("ratelimit second call remaining 1", checkRateLimit("rl-a", 3, 60_000).remaining === 1);
+check("ratelimit third call remaining 0", checkRateLimit("rl-a", 3, 60_000).remaining === 0);
+check("ratelimit fourth call blocked", checkRateLimit("rl-a", 3, 60_000).ok === false);
+check("ratelimit other key is independent", checkRateLimit("rl-b", 3, 60_000).ok === true);
 
 console.log(`\n${pass} passed, ${fail} failed`);
 if (fail > 0) process.exit(1);
