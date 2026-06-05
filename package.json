@@ -11,7 +11,8 @@
     "start": "next start",
     "lint": "next lint",
     "typecheck": "npm run build:core && tsc --noEmit",
-    "test": "npm run build:core && tsx tests/heuristics.test.ts && tsx tests/lib.test.ts"
+    "test": "npm run build:core && tsx tests/heuristics.test.ts && tsx tests/lib.test.ts",
+    "benchmark": "npm run build:core && tsx benchmark/run.ts"
   },
   "dependencies": {
     "@solana-tx-reviewer/core": "*",
