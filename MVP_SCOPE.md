@@ -303,7 +303,7 @@ The MVP is considered successful if:
 
 ## Tests
 
-- `npm test` runs the **10 deterministic heuristics checks** (all passing). They need no network and
+- `npm test` runs the **24 deterministic checks (10 heuristics plus 14 pure-helper checks)** (all passing). They need no network and
   no keys.
 - Pre-sign simulation and token metadata were verified by **live integration against mainnet**. They
   need an RPC, so they are not in the offline unit suite.

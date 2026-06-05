@@ -188,7 +188,7 @@ The deadline is June 11, 2026 (Asia/Dubai). A micro-grant funds a focused increm
 
 ### Primary KPI
 
-A routine DEX swap reviews LOW (score < 25) and a genuine drainer reviews HIGH (score ≥ 45), deterministically, with explainable evidence, and an agent or user can run that same review on an *unsigned* transaction before approving it. This single false-positive-versus-true-positive separation, extended to the pre-sign moment, is the headline outcome the grant is judged on. It is proven post-hoc by `npm test` (10/10), and proven pre-sign by a live mainnet integration where an unsigned transfer to the burn address surfaced the SOL deltas and fired the watchlist rule before signing.
+A routine DEX swap reviews LOW (score < 25) and a genuine drainer reviews HIGH (score ≥ 45), deterministically, with explainable evidence, and an agent or user can run that same review on an *unsigned* transaction before approving it. This single false-positive-versus-true-positive separation, extended to the pre-sign moment, is the headline outcome the grant is judged on. It is proven post-hoc by `npm test` (24/24), and proven pre-sign by a live mainnet integration where an unsigned transfer to the burn address surfaced the SOL deltas and fired the watchlist rule before signing.
 
 ### Timeline (days)
 

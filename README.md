@@ -34,7 +34,7 @@ Think of the reviewer as the review step an agent runs before it signs. An agent
 - **De-saturated scoring.** `assessRisk` dedups same-id findings and applies **diminishing returns** per level so a routine swap reads LOW while a real, stacked drainer stays HIGH.
 - **Real dual-provider LLM behind the seam** ([`src/lib/ai.ts`](src/lib/ai.ts)). The explanation layer genuinely calls **Anthropic or OpenAI** when a key is configured (Anthropic uses prompt caching on the system prompt), with a **free deterministic placeholder default** and graceful fallback on *any* error (missing key, network, rate limit, bad JSON).
 - **Shareable permalink** ([`src/app/tx/[signature]/page.tsx`](src/app/tx/%5Bsignature%5D/page.tsx)). `GET /tx/<signature>?cluster=...` server-renders the full review pipeline, and a Next 16 [`ImageResponse`](src/app/tx/%5Bsignature%5D/opengraph-image.tsx) OG card (risk level + score + short signature) makes a pasted link unfurl into a risk preview. The permalink is for confirmed reviews. A simulated, unsigned transaction has no signature, so no permalink is shown for the pre-sign path.
-- **`npm test` regression suite** ([`tests/heuristics.test.ts`](tests/heuristics.test.ts)). 10 deterministic checks proving swaps stay LOW, real drains stay HIGH, pool/WSOL noise is filtered, and the watchlist fires.
+- **`npm test` regression suite** ([`tests/heuristics.test.ts`](tests/heuristics.test.ts)). 24 deterministic checks proving swaps stay LOW, real drains stay HIGH, pool/WSOL noise is filtered, and the watchlist fires.
 - **Cluster + custom RPC support.** Switch between `mainnet-beta`, `devnet`, and `testnet`, and optionally supply your own Helius / QuickNode / Triton endpoint to avoid public-RPC rate limits.
 
 ---
@@ -143,7 +143,7 @@ npm test
 
 Then open **http://localhost:3000**.
 
-Other scripts: `npm run build`, `npm run start`, `npm run lint`, `npm run typecheck`, and `npm test` (runs [`tests/heuristics.test.ts`](tests/heuristics.test.ts) via `tsx`, 10 checks, all passing). The pre-sign and token-metadata features need a live RPC (and a network call for unknown tokens), so they were verified by live integration against mainnet rather than in the offline unit suite.
+Other scripts: `npm run build`, `npm run start`, `npm run lint`, `npm run typecheck`, and `npm test` (runs [`tests/heuristics.test.ts`](tests/heuristics.test.ts) via `tsx`, 24 checks, all passing). The pre-sign and token-metadata features need a live RPC (and a network call for unknown tokens), so they were verified by live integration against mainnet rather than in the offline unit suite.
 
 ### Permalink
 
@@ -220,7 +220,7 @@ solana-agentic-tx-reviewer/
 │     ├─ ai.ts                 # explainTransaction + buildPrompt (real LLM or placeholder)
 │     └─ review.ts             # reviewTransaction orchestrator + ReviewError
 ├─ tests/
-│  └─ heuristics.test.ts       # npm test, 10 deterministic regression checks (tsx)
+│  └─ heuristics.test.ts       # npm test, 24 deterministic regression checks (tsx)
 ├─ .env.example
 ├─ next.config.mjs
 ├─ postcss.config.mjs          # @tailwindcss/postcss

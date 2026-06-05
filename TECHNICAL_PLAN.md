@@ -695,7 +695,7 @@ stack trace.
 The architecture is built for testability. Every stage except the I/O boundaries is a **pure
 function** over the shared types, so it can be unit-tested with fixture data and no network.
 
-`npm test` runs `tests/heuristics.test.ts` (via `tsx`), 10 deterministic checks over the risk engine,
+`npm test` runs `tests/heuristics.test.ts` (via `tsx`), 24 deterministic checks (10 over the risk engine, 14 over pure helpers),
 and they all pass. They prove the behaviors that are hard to verify against live RPC:
 
 - a DEX swap / full position-sell is relabeled `TOKEN_SWAP`, not flagged as a drain,
