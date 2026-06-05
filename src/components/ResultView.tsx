@@ -2,22 +2,31 @@ import type { ReactNode } from "react";
 import type { ReviewResult } from "@/lib/types";
 import { formatSol, formatTokenAmount, shortPubkey } from "@/lib/format";
 import { RiskBadge } from "./RiskBadge";
+import { RiskGauge } from "./RiskGauge";
 
 function Card({
   title,
   children,
   right,
+  delay = 0,
 }: {
   title: string;
   children: ReactNode;
   right?: ReactNode;
+  delay?: number;
 }) {
   return (
-    <section className="rounded-xl border border-zinc-800 bg-zinc-900/50 p-5">
-      <div className="mb-3 flex items-center justify-between gap-3">
-        <h2 className="text-sm font-semibold uppercase tracking-wider text-zinc-400">
-          {title}
-        </h2>
+    <section
+      className="enter rounded-2xl border border-white/[0.08] bg-white/[0.02] p-5 shadow-[inset_0_1px_0_0_rgba(255,255,255,0.03)]"
+      style={{ animationDelay: `${delay}ms` }}
+    >
+      <div className="mb-4 flex items-center justify-between gap-3">
+        <div className="flex items-center gap-2">
+          <span className="h-3 w-[2px] rounded-full bg-accent/60" />
+          <h2 className="text-[11px] font-semibold uppercase tracking-[0.18em] text-zinc-400">
+            {title}
+          </h2>
+        </div>
         {right}
       </div>
       {children}
@@ -52,32 +61,114 @@ export function ResultView({ result }: { result: ReviewResult }) {
 
   return (
     <div className="flex flex-col gap-4">
+      {/* Risk report (hero) */}
+      <Card
+        title="Risk Report"
+        delay={0}
+        right={
+          tx.simulated ? (
+            <span className="rounded-full bg-cyan-500/15 px-2.5 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-cyan-300">
+              Simulated · pre-sign
+            </span>
+          ) : undefined
+        }
+      >
+        <div className="flex flex-col items-center gap-5 sm:flex-row sm:items-center sm:gap-7">
+          <RiskGauge score={risk.score} level={risk.level} />
+          <div className="min-w-0 flex-1 text-center sm:text-left">
+            <div className="flex items-center justify-center gap-2 sm:justify-start">
+              <RiskBadge level={risk.level} />
+              <span className="text-xs text-zinc-500">overall risk</span>
+            </div>
+            <p className="mt-3 text-sm leading-relaxed text-zinc-300">
+              {risk.summary}
+            </p>
+          </div>
+        </div>
+
+        {risk.findings.length > 0 && (
+          <ul className="mt-5 flex flex-col gap-2 border-t border-white/[0.06] pt-5">
+            {risk.findings.map((f, i) => (
+              <li
+                key={`${f.id}-${i}`}
+                className="rounded-xl border border-white/[0.06] bg-black/30 p-3"
+              >
+                <div className="mb-1 flex items-center gap-2">
+                  <RiskBadge level={f.level} />
+                  <span className="text-sm font-medium text-zinc-100">
+                    {f.title}
+                  </span>
+                </div>
+                <p className="text-xs leading-relaxed text-zinc-400">{f.detail}</p>
+                {f.evidence && f.evidence.length > 0 && (
+                  <ul className="mt-2 space-y-0.5">
+                    {f.evidence.map((e, j) => (
+                      <li key={j} className="font-mono text-xs text-zinc-500">
+                        {e}
+                      </li>
+                    ))}
+                  </ul>
+                )}
+              </li>
+            ))}
+          </ul>
+        )}
+      </Card>
+
+      {/* AI explanation */}
+      <Card
+        title="AI Explanation"
+        delay={80}
+        right={
+          <span className="rounded-full bg-black/40 px-2 py-0.5 text-xs text-zinc-400 ring-1 ring-white/5">
+            {explanation.provider === "placeholder"
+              ? "rule-based · LLM-ready"
+              : `${explanation.provider}${explanation.model ? ` · ${explanation.model}` : ""}`}
+          </span>
+        }
+      >
+        <p className="text-sm leading-relaxed text-zinc-200">
+          {explanation.summary}
+        </p>
+        {explanation.bullets.length > 0 && (
+          <ul className="mt-3 flex flex-col gap-1">
+            {explanation.bullets.map((b, i) => (
+              <li key={i} className="flex gap-2 text-sm text-zinc-300">
+                <span className="text-accent/50">›</span>
+                <span className="font-mono text-[13px]">{b}</span>
+              </li>
+            ))}
+          </ul>
+        )}
+        <div className="mt-4 space-y-1 border-t border-white/[0.06] pt-3">
+          {explanation.caveats.map((c, i) => (
+            <p key={i} className="text-xs text-zinc-500">
+              {c}
+            </p>
+          ))}
+        </div>
+      </Card>
+
       {/* Overview */}
       <Card
         title="Overview"
+        delay={160}
         right={
-          <div className="flex items-center gap-2">
-            {tx.simulated && (
-              <span className="rounded-full bg-violet-500/15 px-2.5 py-0.5 text-xs font-medium uppercase tracking-wide text-violet-300">
-                Simulated
-              </span>
-            )}
-            <span
-              className={`rounded-full px-2.5 py-0.5 text-xs font-medium ${
-                tx.success
-                  ? "bg-emerald-500/15 text-emerald-300"
-                  : "bg-rose-500/15 text-rose-300"
-              }`}
-            >
-              {tx.simulated
-                ? tx.success
-                  ? "Would succeed"
-                  : "Would fail"
-                : tx.success
-                  ? "Success"
-                  : "Failed"}
-            </span>
-          </div>
+          <span
+            className={`rounded-full px-2.5 py-0.5 text-xs font-medium ${
+              tx.success
+                ? "bg-emerald-500/15 text-emerald-300"
+                : "bg-rose-500/15 text-rose-300"
+            }`}
+          >
+            {tx.simulated
+              ? tx.success
+                ? "Would succeed"
+                : "Would fail"
+              : tx.success
+                ? "Success"
+                : "Failed"}
+          </span>
         }
       >
         <div className="grid grid-cols-2 gap-4 sm:grid-cols-3">
@@ -91,7 +182,7 @@ export function ResultView({ result }: { result: ReviewResult }) {
                   href={explorerUrl}
                   target="_blank"
                   rel="noreferrer"
-                  className="underline decoration-zinc-700 underline-offset-2 hover:decoration-zinc-400"
+                  className="underline decoration-zinc-700 underline-offset-2 transition hover:decoration-accent/60"
                 >
                   <Mono>{shortPubkey(tx.signature, 8)} ↗</Mono>
                 </a>
@@ -129,83 +220,8 @@ export function ResultView({ result }: { result: ReviewResult }) {
         </div>
       </Card>
 
-      {/* AI explanation */}
-      <Card
-        title="AI Explanation"
-        right={
-          <span className="rounded-full bg-zinc-800 px-2 py-0.5 text-xs text-zinc-400">
-            {explanation.provider === "placeholder"
-              ? "rule-based · LLM-ready"
-              : explanation.provider}
-          </span>
-        }
-      >
-        <p className="text-sm leading-relaxed text-zinc-200">
-          {explanation.summary}
-        </p>
-        {explanation.bullets.length > 0 && (
-          <ul className="mt-3 flex flex-col gap-1">
-            {explanation.bullets.map((b, i) => (
-              <li key={i} className="flex gap-2 text-sm text-zinc-300">
-                <span className="text-zinc-600">·</span>
-                <span className="font-mono text-[13px]">{b}</span>
-              </li>
-            ))}
-          </ul>
-        )}
-        <div className="mt-4 space-y-1 border-t border-zinc-800 pt-3">
-          {explanation.caveats.map((c, i) => (
-            <p key={i} className="text-xs text-zinc-500">
-              {c}
-            </p>
-          ))}
-        </div>
-      </Card>
-
-      {/* Risk report */}
-      <Card
-        title="Risk Report"
-        right={
-          <div className="flex items-center gap-2">
-            <RiskBadge level={risk.level} />
-            <span className="text-xs text-zinc-500">score {risk.score}/100</span>
-          </div>
-        }
-      >
-        <p className="mb-3 text-sm text-zinc-300">{risk.summary}</p>
-        {risk.findings.length === 0 ? (
-          <p className="text-sm text-zinc-500">No findings.</p>
-        ) : (
-          <ul className="flex flex-col gap-2">
-            {risk.findings.map((f, i) => (
-              <li
-                key={`${f.id}-${i}`}
-                className="rounded-lg border border-zinc-800 bg-zinc-950/40 p-3"
-              >
-                <div className="mb-1 flex items-center gap-2">
-                  <RiskBadge level={f.level} />
-                  <span className="text-sm font-medium text-zinc-100">
-                    {f.title}
-                  </span>
-                </div>
-                <p className="text-xs leading-relaxed text-zinc-400">{f.detail}</p>
-                {f.evidence && f.evidence.length > 0 && (
-                  <ul className="mt-2 space-y-0.5">
-                    {f.evidence.map((e, i) => (
-                      <li key={i} className="font-mono text-xs text-zinc-500">
-                        {e}
-                      </li>
-                    ))}
-                  </ul>
-                )}
-              </li>
-            ))}
-          </ul>
-        )}
-      </Card>
-
       {/* Programs */}
-      <Card title={`Programs (${tx.programsInvoked.length})`}>
+      <Card title={`Programs (${tx.programsInvoked.length})`} delay={220}>
         <ul className="flex flex-col gap-1.5">
           {tx.programsInvoked.map((p) => (
             <li
@@ -226,7 +242,7 @@ export function ResultView({ result }: { result: ReviewResult }) {
 
       {/* Token balance changes */}
       {tx.tokenBalanceChanges.length > 0 && (
-        <Card title={`Token Balance Changes (${tx.tokenBalanceChanges.length})`}>
+        <Card title={`Token Balance Changes (${tx.tokenBalanceChanges.length})`} delay={280}>
           <div className="overflow-x-auto">
             <table className="w-full text-left text-sm">
               <thead className="text-xs text-zinc-500">
@@ -240,7 +256,7 @@ export function ResultView({ result }: { result: ReviewResult }) {
               </thead>
               <tbody className="font-mono text-[13px]">
                 {tx.tokenBalanceChanges.map((c) => (
-                  <tr key={c.accountIndex} className="border-t border-zinc-800">
+                  <tr key={c.accountIndex} className="border-t border-white/[0.06]">
                     <td className="py-1.5 text-zinc-300">
                       {shortPubkey(c.owner ?? c.account)}
                     </td>
@@ -279,19 +295,23 @@ export function ResultView({ result }: { result: ReviewResult }) {
       )}
 
       {/* Instructions */}
-      <Card title={`Instructions (${tx.instructions.length})`}>
+      <Card title={`Instructions (${tx.instructions.length})`} delay={340}>
         <ul className="flex flex-col gap-1">
           {tx.instructions.map((ix) => (
             <li
               key={ix.index}
-              className={`flex items-center justify-between gap-3 rounded-md px-2 py-1.5 text-sm ${
-                ix.isInner ? "ml-4 bg-zinc-950/40" : "bg-zinc-800/30"
+              className={`flex items-center justify-between gap-3 rounded-lg px-2.5 py-1.5 text-sm ${
+                ix.isInner
+                  ? "ml-4 border-l border-white/[0.06] bg-black/20"
+                  : "bg-white/[0.03]"
               }`}
             >
               <span className="flex items-center gap-2">
-                <span className="text-xs text-zinc-600">#{ix.index}</span>
+                <span className="font-mono text-xs text-zinc-600">#{ix.index}</span>
                 {ix.isInner && (
-                  <span className="text-[10px] uppercase text-zinc-600">cpi</span>
+                  <span className="text-[10px] uppercase tracking-wide text-accent/50">
+                    cpi
+                  </span>
                 )}
                 <span className="text-zinc-200">
                   {ix.programName ?? (
@@ -299,7 +319,7 @@ export function ResultView({ result }: { result: ReviewResult }) {
                   )}
                 </span>
                 {ix.parsedType && (
-                  <span className="rounded bg-zinc-800 px-1.5 py-0.5 text-xs text-zinc-400">
+                  <span className="rounded bg-black/40 px-1.5 py-0.5 font-mono text-xs text-zinc-400 ring-1 ring-white/5">
                     {ix.parsedType}
                   </span>
                 )}
@@ -313,7 +333,7 @@ export function ResultView({ result }: { result: ReviewResult }) {
       </Card>
 
       {/* Accounts */}
-      <Card title={`Accounts (${tx.accounts.length})`}>
+      <Card title={`Accounts (${tx.accounts.length})`} delay={400}>
         <div className="overflow-x-auto">
           <table className="w-full text-left text-sm">
             <thead className="text-xs text-zinc-500">
@@ -326,7 +346,7 @@ export function ResultView({ result }: { result: ReviewResult }) {
             </thead>
             <tbody className="font-mono text-[13px]">
               {tx.accounts.map((a) => (
-                <tr key={a.index} className="border-t border-zinc-800">
+                <tr key={a.index} className="border-t border-white/[0.06]">
                   <td className="py-1.5 text-zinc-600">{a.index}</td>
                   <td className="py-1.5 text-zinc-300">{shortPubkey(a.pubkey, 6)}</td>
                   <td className="py-1.5">
@@ -342,7 +362,7 @@ export function ResultView({ result }: { result: ReviewResult }) {
                         </span>
                       )}
                       {a.isProgram && (
-                        <span className="rounded bg-zinc-700 px-1.5 text-xs text-zinc-300">
+                        <span className="rounded bg-zinc-700/60 px-1.5 text-xs text-zinc-300">
                           program
                         </span>
                       )}
@@ -370,12 +390,12 @@ export function ResultView({ result }: { result: ReviewResult }) {
 
       {/* Logs */}
       {tx.logMessages.length > 0 && (
-        <Card title={`Program Logs (${tx.logMessages.length})`}>
+        <Card title={`Program Logs (${tx.logMessages.length})`} delay={460}>
           <details>
-            <summary className="cursor-pointer text-xs text-zinc-500 hover:text-zinc-300">
+            <summary className="cursor-pointer text-xs text-zinc-500 transition hover:text-zinc-300">
               Show raw log messages
             </summary>
-            <pre className="mt-3 max-h-80 overflow-auto rounded-lg bg-zinc-950 p-3 font-mono text-xs leading-relaxed text-zinc-400">
+            <pre className="mt-3 max-h-80 overflow-auto rounded-xl bg-black/50 p-3 font-mono text-xs leading-relaxed text-zinc-400 ring-1 ring-white/5">
               {tx.logMessages.join("\n")}
             </pre>
           </details>

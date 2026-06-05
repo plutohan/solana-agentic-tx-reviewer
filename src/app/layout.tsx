@@ -1,6 +1,21 @@
 import "./globals.css";
 import type { Metadata } from "next";
 import type { ReactNode } from "react";
+import { Bricolage_Grotesque, JetBrains_Mono } from "next/font/google";
+
+const display = Bricolage_Grotesque({
+  subsets: ["latin"],
+  variable: "--font-display",
+  weight: ["400", "500", "600", "700", "800"],
+  display: "swap",
+});
+
+const mono = JetBrains_Mono({
+  subsets: ["latin"],
+  variable: "--font-jb",
+  weight: ["400", "500", "700"],
+  display: "swap",
+});
 
 // Prefer an explicit site URL, fall back to the Vercel deployment URL, then localhost.
 const siteUrl =
@@ -18,8 +33,11 @@ export const metadata: Metadata = {
 
 export default function RootLayout({ children }: { children: ReactNode }) {
   return (
-    <html lang="en">
-      <body className="min-h-screen antialiased">{children}</body>
+    <html lang="en" className={`${display.variable} ${mono.variable}`}>
+      <body className="min-h-screen antialiased">
+        <div className="bg-atmosphere" aria-hidden />
+        {children}
+      </body>
     </html>
   );
 }

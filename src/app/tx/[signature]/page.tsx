@@ -3,6 +3,7 @@ import { reviewTransaction, ReviewError } from "@/lib/review";
 import type { Cluster } from "@/lib/types";
 import { ResultView } from "@/components/ResultView";
 import { RiskBadge } from "@/components/RiskBadge";
+import { Mark } from "@/components/Mark";
 import { shortPubkey } from "@/lib/format";
 
 export const runtime = "nodejs";
@@ -53,22 +54,30 @@ export default async function TxPage({
   }
 
   return (
-    <main className="mx-auto max-w-3xl px-4 py-10 sm:py-14">
-      <header className="mb-8 flex items-start justify-between gap-3">
-        <div className="min-w-0">
-          <a href="/" className="text-sm text-zinc-500 hover:text-zinc-300">
-            ← Review another
-          </a>
-          <h1 className="mt-1 text-xl font-semibold tracking-tight text-zinc-100">
-            Transaction Review
-          </h1>
-          <p className="mt-1 break-all font-mono text-xs text-zinc-500">{sig}</p>
+    <main className="mx-auto max-w-3xl px-4 py-12 sm:py-16">
+      <header className="enter mb-8">
+        <a
+          href="/"
+          className="inline-flex items-center gap-2 text-sm text-zinc-400 transition hover:text-accent"
+        >
+          <Mark size={20} />
+          <span className="font-semibold tracking-tight">
+            Solana Agentic Transaction Reviewer
+          </span>
+        </a>
+        <div className="mt-5 flex items-start justify-between gap-3">
+          <div className="min-w-0">
+            <h1 className="text-xl font-bold tracking-tight text-zinc-50">
+              Transaction Review
+            </h1>
+            <p className="mt-1 break-all font-mono text-xs text-zinc-500">{sig}</p>
+          </div>
+          {result && (
+            <RiskBadge level={result.risk.level}>
+              {result.risk.level} · {result.risk.score}
+            </RiskBadge>
+          )}
         </div>
-        {result && (
-          <RiskBadge level={result.risk.level}>
-            {result.risk.level} · {result.risk.score}
-          </RiskBadge>
-        )}
       </header>
 
       {error && (
