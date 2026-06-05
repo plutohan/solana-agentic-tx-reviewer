@@ -45,6 +45,11 @@ function Field({ label, value }: { label: string; value: ReactNode }) {
 export function ResultView({ result }: { result: ReviewResult }) {
   const { transaction: tx, risk, explanation } = result;
 
+  const explorerUrl =
+    tx.cluster === "mainnet-beta"
+      ? `https://solscan.io/tx/${tx.signature}`
+      : `https://solscan.io/tx/${tx.signature}?cluster=${tx.cluster}`;
+
   return (
     <div className="flex flex-col gap-4">
       {/* Overview */}
@@ -82,7 +87,14 @@ export function ResultView({ result }: { result: ReviewResult }) {
               tx.simulated ? (
                 "unsigned (pre-sign)"
               ) : (
-                <Mono>{shortPubkey(tx.signature, 8)}</Mono>
+                <a
+                  href={explorerUrl}
+                  target="_blank"
+                  rel="noreferrer"
+                  className="underline decoration-zinc-700 underline-offset-2 hover:decoration-zinc-400"
+                >
+                  <Mono>{shortPubkey(tx.signature, 8)} ↗</Mono>
+                </a>
               )
             }
           />
@@ -100,8 +112,12 @@ export function ResultView({ result }: { result: ReviewResult }) {
             }
           />
           <Field
-            label="Fee"
-            value={tx.simulated ? "—" : `${formatSol(tx.feeSol)} SOL`}
+            label={tx.simulated ? "Fee (est.)" : "Fee"}
+            value={
+              tx.simulated && tx.feeLamports === 0
+                ? "—"
+                : `${formatSol(tx.feeSol)} SOL`
+            }
           />
           <Field
             label="Compute units"

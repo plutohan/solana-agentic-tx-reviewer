@@ -14,6 +14,7 @@ export default function Home() {
   const [rpcUrl, setRpcUrl] = useState("");
   const [showRpc, setShowRpc] = useState(false);
   const [loading, setLoading] = useState(false);
+  const [sampling, setSampling] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [result, setResult] = useState<ReviewResult | null>(null);
 
@@ -45,6 +46,26 @@ export default function Home() {
       setError((err as Error).message ?? "Network error");
     } finally {
       setLoading(false);
+    }
+  }
+
+  async function loadSample() {
+    setSampling(true);
+    setError(null);
+    try {
+      const res = await fetch(`/api/sample?mode=${mode}&cluster=${cluster}`);
+      const data = await res.json();
+      if (!res.ok) {
+        setError(data.error ?? "Could not load a sample");
+      } else if (mode === "unsigned") {
+        setRawTx(data.rawTransaction);
+      } else {
+        setSignature(data.signature);
+      }
+    } catch (err) {
+      setError((err as Error).message ?? "Could not load a sample");
+    } finally {
+      setSampling(false);
     }
   }
 
@@ -118,6 +139,14 @@ export default function Home() {
             <option value="devnet">devnet</option>
             <option value="testnet">testnet</option>
           </select>
+          <button
+            type="button"
+            onClick={loadSample}
+            disabled={sampling}
+            className="text-xs text-zinc-400 hover:text-zinc-200 disabled:opacity-50"
+          >
+            {sampling ? "loading sample…" : "Load a sample"}
+          </button>
           <button
             type="button"
             onClick={() => setShowRpc((v) => !v)}

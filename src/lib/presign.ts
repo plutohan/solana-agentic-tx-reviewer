@@ -78,7 +78,7 @@ const SYSTEM_IX: Record<number, string> = {
   11: "transferWithSeed",
 };
 
-function decodeIxType(
+export function decodeIxType(
   programId: string,
   data: Buffer,
 ): { program?: string; parsedType?: string } {
@@ -354,6 +354,16 @@ export async function simulateAndReview(
     .map(([programId, count]) => ({ programId, name: resolveProgram(programId)?.name, count }))
     .sort((a, b) => b.count - a.count);
 
+  // Best-effort fee estimate. Returns null if the RPC cannot price the message
+  // (e.g. a stale blockhash); fee then stays 0 and the UI shows it as unknown.
+  let feeLamports = 0;
+  try {
+    const feeRes = await connection.getFeeForMessage(message, "confirmed");
+    feeLamports = feeRes.value ?? 0;
+  } catch {
+    // leave at 0
+  }
+
   const err = value.err ?? null;
   return {
     signature: "(unsigned)",
@@ -362,8 +372,8 @@ export async function simulateAndReview(
     blockTime: null,
     success: err === null,
     err,
-    feeLamports: 0,
-    feeSol: 0,
+    feeLamports,
+    feeSol: lamportsToSol(feeLamports),
     computeUnitsConsumed: value.unitsConsumed,
     recentBlockhash: ("recentBlockhash" in message ? message.recentBlockhash : "") || "",
     feePayer: pubkeys[0] ?? "",
