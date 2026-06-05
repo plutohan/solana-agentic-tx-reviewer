@@ -51,6 +51,28 @@ check("system 0 -> createAccount (system)", sys(0).parsedType === "createAccount
 check("system 1 -> assign", sys(1).parsedType === "assign");
 check("system 2 -> transfer", sys(2).parsedType === "transfer");
 
+// decodeIxType: Compute Budget, Associated Token Account, Memo (richer pre-sign labeling).
+const COMPUTE_BUDGET = "ComputeBudget111111111111111111111111111111";
+const ATA = "ATokenGPvbdGVxr1b2hvZbsiqW5xWH25efTNsLJA8knL";
+const MEMO = "MemoSq4gqABAXKb96qnH8TysNcWxMyWCqXgDLGmfcHr";
+check(
+  "compute-budget 2 -> setComputeUnitLimit",
+  decodeIxType(COMPUTE_BUDGET, Buffer.from([2])).parsedType === "setComputeUnitLimit" &&
+    decodeIxType(COMPUTE_BUDGET, Buffer.from([2])).program === "compute-budget",
+);
+check("compute-budget 3 -> setComputeUnitPrice", decodeIxType(COMPUTE_BUDGET, Buffer.from([3])).parsedType === "setComputeUnitPrice");
+check(
+  "ATA empty data -> create",
+  decodeIxType(ATA, Buffer.from([])).parsedType === "create" &&
+    decodeIxType(ATA, Buffer.from([])).program === "spl-associated-token-account",
+);
+check("ATA 1 -> createIdempotent", decodeIxType(ATA, Buffer.from([1])).parsedType === "createIdempotent");
+check(
+  "memo -> memo",
+  decodeIxType(MEMO, Buffer.from("hi")).parsedType === "memo" &&
+    decodeIxType(MEMO, Buffer.from("hi")).program === "spl-memo",
+);
+
 // Unknown program -> no decode.
 const unknown = decodeIxType("9xQeWvG816bUx9EPjHmaT23yvVM2ZWbrrpZb9PusVFin", Buffer.from([0]));
 check("unknown program -> no program/type", unknown.program === undefined && unknown.parsedType === undefined);

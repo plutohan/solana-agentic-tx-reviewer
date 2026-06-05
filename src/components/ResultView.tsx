@@ -1,8 +1,53 @@
 import type { ReactNode } from "react";
-import type { ReviewResult } from "@/lib/types";
+import type { ReviewResult, InstructionSummary } from "@/lib/types";
 import { formatSol, formatTokenAmount, shortPubkey } from "@/lib/format";
 import { RiskBadge } from "./RiskBadge";
 import { RiskGauge } from "./RiskGauge";
+
+/** One instruction row, shared by top-level and nested CPI children. */
+function InstructionRow({
+  ix,
+  child = false,
+  innerCount = 0,
+}: {
+  ix: InstructionSummary;
+  child?: boolean;
+  innerCount?: number;
+}) {
+  return (
+    <div
+      className={`flex items-center justify-between gap-3 rounded-lg px-2.5 py-1.5 text-sm ${
+        child ? "bg-black/20" : "bg-white/[0.03]"
+      }`}
+    >
+      <span className="flex min-w-0 items-center gap-2">
+        {child && <span className="font-mono text-accent/40">└</span>}
+        <span className="font-mono text-xs text-zinc-600">#{ix.index}</span>
+        {child && (
+          <span className="text-[10px] uppercase tracking-wide text-accent/50">cpi</span>
+        )}
+        <span className="truncate text-zinc-200">
+          {ix.programName ?? (
+            <span className="text-amber-300">{shortPubkey(ix.programId, 6)}</span>
+          )}
+        </span>
+        {ix.parsedType && (
+          <span className="rounded bg-black/40 px-1.5 py-0.5 font-mono text-xs text-zinc-400 ring-1 ring-white/5">
+            {ix.parsedType}
+          </span>
+        )}
+      </span>
+      <span className="flex shrink-0 items-center gap-2 text-xs text-zinc-600">
+        {innerCount > 0 && (
+          <span className="rounded-full bg-accent/10 px-1.5 py-0.5 text-[10px] font-medium text-accent/80">
+            {innerCount} inner
+          </span>
+        )}
+        {ix.accounts.length} accts
+      </span>
+    </div>
+  );
+}
 
 function Card({
   title,
@@ -294,41 +339,28 @@ export function ResultView({ result }: { result: ReviewResult }) {
         </Card>
       )}
 
-      {/* Instructions */}
+      {/* Instructions (CPI call tree): top-level calls with their inner CPIs nested. */}
       <Card title={`Instructions (${tx.instructions.length})`} delay={340}>
-        <ul className="flex flex-col gap-1">
-          {tx.instructions.map((ix) => (
-            <li
-              key={ix.index}
-              className={`flex items-center justify-between gap-3 rounded-lg px-2.5 py-1.5 text-sm ${
-                ix.isInner
-                  ? "ml-4 border-l border-white/[0.06] bg-black/20"
-                  : "bg-white/[0.03]"
-              }`}
-            >
-              <span className="flex items-center gap-2">
-                <span className="font-mono text-xs text-zinc-600">#{ix.index}</span>
-                {ix.isInner && (
-                  <span className="text-[10px] uppercase tracking-wide text-accent/50">
-                    cpi
-                  </span>
-                )}
-                <span className="text-zinc-200">
-                  {ix.programName ?? (
-                    <span className="text-amber-300">{shortPubkey(ix.programId, 6)}</span>
+        <ul className="flex flex-col gap-2">
+          {tx.instructions
+            .filter((ix) => !ix.isInner)
+            .map((parent) => {
+              const children = tx.instructions.filter(
+                (c) => c.isInner && c.parentIndex === parent.index,
+              );
+              return (
+                <li key={parent.index} className="flex flex-col gap-1">
+                  <InstructionRow ix={parent} innerCount={children.length} />
+                  {children.length > 0 && (
+                    <div className="ml-3 flex flex-col gap-1 border-l border-white/[0.08] pl-3">
+                      {children.map((c) => (
+                        <InstructionRow key={c.index} ix={c} child />
+                      ))}
+                    </div>
                   )}
-                </span>
-                {ix.parsedType && (
-                  <span className="rounded bg-black/40 px-1.5 py-0.5 font-mono text-xs text-zinc-400 ring-1 ring-white/5">
-                    {ix.parsedType}
-                  </span>
-                )}
-              </span>
-              <span className="text-xs text-zinc-600">
-                {ix.accounts.length} accts
-              </span>
-            </li>
-          ))}
+                </li>
+              );
+            })}
         </ul>
       </Card>
 

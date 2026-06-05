@@ -61,9 +61,8 @@ The home page, confirmed-signature review, the pre-sign simulation path, the `/t
   - **`TOKEN_SWAP` (low).** Defensively relabels a would-be full-drain or large-outflow when the *same signer* received non-dust value back (a different-mint token inflow `> 1` base unit, or net SOL `> 0.001`) AND a known DEX program is present. That is consistent with a swap or position exit, not a drain. An undefined owner or a dusted fake inflow fails safe to the higher-risk drain finding.
   - **`FLAGGED_ADDRESS` (from `src/lib/watchlist.ts`).** A curated, **best-effort, non-exhaustive, not-financial-advice** watchlist. Seeded honestly with only the well-known SOL burn/incinerator address (`FLAGGED_ADDRESSES`). The same mechanism matches flagged program IDs (`FLAGGED_PROGRAMS`, intentionally empty to avoid false accusations). `lookupWatch()` is fully wired, so the list grows without code changes. This is the rule I watched fire during the live pre-sign test.
   - **Scoring de-saturation.** `assessRisk()` de-dupes same-id findings (`dedupeFindings`, merging evidence and tagging `×N`) and applies **diminishing returns** (the k-th finding at a level adds `weight * 0.5^k`, via `computeScore`). A routine busy swap reads LOW. A real, *stacked* drainer stays HIGH. `LEVEL_WEIGHT` is unchanged (`info 0 / low 10 / medium 25 / high 45`).
-- **Real dual-provider LLM, wired and deployed** (`src/lib/ai.ts`): `explainTransaction(tx, risk)` genuinely calls **Anthropic (Claude) or OpenAI** behind the dual-provider seam, gated on `AI_PROVIDER` plus the matching key, and maps the model's JSON into the existing `AiExplanation` shape (no schema change). Anthropic requests apply **prompt caching** to the static system prompt (`cache_control: ephemeral`). The system prompt tells the model to use *only* the provided facts. It is mode-aware. A simulated transaction is framed as an unsigned, not-yet-executed transaction. In production `AI_PROVIDER=anthropic` and the key are configured, so this produces real Claude explanations as soon as the Anthropic account is funded. Be honest about the state here. The integration is wired and deployed. It activates when the Anthropic account has credits. Until then, and on **any** error (missing key, network, rate limit, bad JSON), it degrades gracefully to the **free, deterministic placeholder**, so the app always works and stays free by default. I am not claiming Claude output is live right now. The seam is.
+- **Real dual-provider LLM, wired and deployed** (`src/lib/ai.ts`): `explainTransaction(tx, risk)` genuinely calls **Anthropic (Claude) or OpenAI** behind the dual-provider seam, gated on `AI_PROVIDER` plus the matching key, and maps the model's JSON into the existing `AiExplanation` shape (no schema change). Anthropic requests apply **prompt caching** to the static system prompt (`cache_control: ephemeral`). The system prompt tells the model to use *only* the provided facts. It is mode-aware. A simulated transaction is framed as an unsigned, not-yet-executed transaction. In production `AI_PROVIDER=anthropic`, the key is configured, and the account is funded, so this now produces **real Claude explanations live** (a live review returns `provider: anthropic` with a model). On **any** error (missing key, network, rate limit, bad JSON), it degrades gracefully to the **free, deterministic placeholder**, so the app always works and stays free by default.
   - Env: `AI_PROVIDER=anthropic|openai`, `ANTHROPIC_API_KEY` / `ANTHROPIC_MODEL` (default `claude-haiku-4-5-20251001`), `OPENAI_API_KEY` / `OPENAI_MODEL` (default `gpt-4o-mini`).
-  - A diagnostic route, `GET /api/ai-status`, reports which AI config is present without ever returning a key value, and `?test=1` does a minimal live ping so you can tell "AI_PROVIDER not set" from "key/model rejected".
 - **Sample generator** (`src/lib/sample.ts`, `GET /api/sample`): a "Load a sample" button builds a fresh unsigned transaction (a 0.001 SOL transfer to the burn address that always simulates and always trips the watchlist) or fetches a recent successful signature from a busy program. The demo never lands on an empty box or a pruned input. Results link the signature out to Solscan.
 - **Orchestration + API** (`src/lib/review.ts`, `src/app/api/review/route.ts`): `reviewTransaction(request)` runs the pipeline and throws a typed `ReviewError(status)` for clean HTTP mapping (400 invalid input, 404 not found, 502 RPC error, 500 unexpected). It routes on the input: a `rawTransaction` triggers the pre-sign path (`simulateAndReview`, whose `PresignError` maps to `ReviewError`), and a `signature` triggers the confirmed path. `POST /api/review` with `{ rawTransaction: <base64> }` runs the simulation. It runs on the Node.js runtime, since `@solana/web3.js` needs Node APIs. The review routes set `maxDuration = 30` so the multi-RPC pre-sign path does not hit the default serverless timeout.
 - **Shareable permalink + OG card** (`src/app/tx/[signature]/page.tsx`, `src/app/tx/[signature]/opengraph-image.tsx`): `GET /tx/<signature>?cluster=…` server-renders the **full** `reviewTransaction` pipeline and reuses `ResultView` / `RiskBadge`, with **zero new risk logic**. A Next 16 `ImageResponse` OG card (risk level + score + short signature + a one-line summary) makes a pasted link unfurl into a risk preview. `metadataBase` auto-detects: `NEXT_PUBLIC_SITE_URL`, then `VERCEL_URL`, then `http://localhost:3000` (in `src/app/layout.tsx`). The home page surfaces an "Open shareable permalink ↗" link, shown only for confirmed reviews.
@@ -153,12 +152,12 @@ This is the most strategic step and the clearest expression of the agent-loop fr
 
 ---
 
-### N2: Turn Claude on in production and harden the LLM guardrails
+### N2: Turn Claude on in production and harden the LLM guardrails (Claude live)
 
-The dual-provider seam is **already wired and deployed** (Anthropic/OpenAI, prompt caching, mode-aware prompt, graceful fallback, see [section 1](#1-current-status-what-is-done-today)). The remaining step to make real Claude explanations live is trivial. Fund the Anthropic account. The key and `AI_PROVIDER=anthropic` are already set in production, and `GET /api/ai-status?test=1` confirms the wiring. This milestone also hardens the seam.
+**Done:** the Anthropic account is funded and real Claude explanations are now live in production (a live review returns `provider: anthropic` with a model). The dual-provider seam was already wired and deployed (Anthropic/OpenAI, prompt caching, mode-aware prompt, graceful fallback on any error). The remaining work in this milestone is to harden the seam further.
 
 **Deliverables**
-- Fund the Anthropic account so production serves real Claude output (the free placeholder remains the fallback on any error).
+- Fund the Anthropic account so production serves real Claude output (done; the free placeholder remains the fallback on any error).
 - Tighten guardrails: output-length caps (in place), explicit timeouts and retries, and a small cost budget per request.
 - Structured-output validation beyond the current shape check (reject hallucinated addresses or amounts not present in the `ParsedTransaction`/`RiskReport`).
 - A `.env.example` and docs covering provider selection, model defaults, prompt caching, and cost. A tiny offline fixture test for the JSON-parsing and fallback path.
@@ -173,21 +172,22 @@ The dual-provider seam is **already wired and deployed** (Anthropic/OpenAI, prom
 
 ---
 
-### N3: Richer program/IDL labeling and a CPI tree view
+### N3: Richer program/IDL labeling and a CPI tree view (shipped)
 
-Token metadata enrichment already shipped (see [section 1](#1-current-status-what-is-done-today)), so symbols, names, and logos render today. This milestone makes the instruction-level data more legible, which gives both the heuristics and the explanation more context.
+This milestone makes the instruction-level data more legible, which gives both the heuristics and the explanation more context. The core is now built and deployed.
 
-**Deliverables**
-- **Program/IDL enrichment:** keep expanding `programs.ts` and best-effort label partially-decoded instructions. Surface friendlier `parsedType` and account roles. Extend the pre-sign discriminator decoder beyond SPL Token and System so more programs' instruction types are named in the simulated path.
-- **CPI depth and call-tree view:** render the flattened top-level plus inner instruction list as a readable nested tree (the data already distinguishes inner instructions via `isInner`/`parentIndex`, and the simulated path already carries them).
-- Caching/memoization for any added metadata lookups to limit extra RPC/HTTP calls.
+**Shipped**
+- **Richer pre-sign labeling:** the simulated-path discriminator decoder now covers Compute Budget (`setComputeUnitLimit` / `setComputeUnitPrice`), Associated Token Account (`create` / `createIdempotent` / `recoverNested`), and Memo, on top of SPL Token and System. Common compute-budget and ATA instructions that were previously unlabeled in the pre-sign path now carry a `parsedType`.
+- **CPI call-tree view:** the Instructions card renders top-level calls with their inner CPIs nested under a connector, each parent showing an "N inner" count. Built on the existing `isInner` / `parentIndex` data, which both the confirmed and simulated paths already populate.
+- The change is additive: the `ParsedTransaction` contract is unchanged and prior behavior holds when a program is unknown. Covered by new decoder tests.
 
-**Effort:** about 1 day.
+**Remaining follow-ups**
+- Full IDL-driven decoding for arbitrary programs (Anchor IDLs), and true multi-level CPI nesting via `stackHeight`.
 
 **Acceptance criteria**
-- Previously "unrecognized" but well-known instructions are labeled, reducing `UNKNOWN_PROGRAM` noise.
-- Inner/CPI instructions are visibly grouped under their parent.
-- Enrichment is additive. The `ParsedTransaction` contract still validates and all prior behavior is unchanged when lookups fail.
+- Previously "unrecognized" but well-known instructions are labeled, reducing noise. (Met for Compute Budget, ATA, and Memo in the pre-sign path.)
+- Inner/CPI instructions are visibly grouped under their parent. (Met: verified in the rendered output.)
+- Enrichment is additive and prior behavior is unchanged when lookups fail. (Met.)
 
 ---
 

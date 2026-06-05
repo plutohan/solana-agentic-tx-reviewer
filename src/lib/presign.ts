@@ -77,6 +77,23 @@ const SYSTEM_IX: Record<number, string> = {
   10: "assignWithSeed",
   11: "transferWithSeed",
 };
+const COMPUTE_BUDGET_PROGRAM_ID = "ComputeBudget111111111111111111111111111111";
+const ASSOCIATED_TOKEN_PROGRAM_ID = "ATokenGPvbdGVxr1b2hvZbsiqW5xWH25efTNsLJA8knL";
+const MEMO_PROGRAM_IDS = new Set([
+  "MemoSq4gqABAXKb96qnH8TysNcWxMyWCqXgDLGmfcHr",
+  "Memo1UhkJRfHyvLMcVucJwxXeuD728EqVDDwQDxFMNo",
+]);
+const COMPUTE_BUDGET_IX: Record<number, string> = {
+  0: "requestUnits",
+  1: "requestHeapFrame",
+  2: "setComputeUnitLimit",
+  3: "setComputeUnitPrice",
+};
+const ASSOCIATED_TOKEN_IX: Record<number, string> = {
+  0: "create",
+  1: "createIdempotent",
+  2: "recoverNested",
+};
 
 export function decodeIxType(
   programId: string,
@@ -90,6 +107,21 @@ export function decodeIxType(
   if (programId === SYSTEM_PROGRAM_ID) {
     const type = data.length >= 4 ? SYSTEM_IX[data.readUInt32LE(0)] : undefined;
     return { program: "system", parsedType: type };
+  }
+  if (programId === COMPUTE_BUDGET_PROGRAM_ID) {
+    return {
+      program: "compute-budget",
+      parsedType: data.length ? COMPUTE_BUDGET_IX[data[0]] : undefined,
+    };
+  }
+  if (programId === ASSOCIATED_TOKEN_PROGRAM_ID) {
+    // The original Create instruction carries no data; later variants use a
+    // single-byte discriminator.
+    const parsedType = data.length === 0 ? "create" : ASSOCIATED_TOKEN_IX[data[0]];
+    return { program: "spl-associated-token-account", parsedType };
+  }
+  if (MEMO_PROGRAM_IDS.has(programId)) {
+    return { program: "spl-memo", parsedType: "memo" };
   }
   return {};
 }
