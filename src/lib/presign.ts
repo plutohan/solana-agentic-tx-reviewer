@@ -77,6 +77,65 @@ function mintDecimals(data: Buffer | null): number {
   return data && data.length >= 45 ? data[44] : 0;
 }
 
+/**
+ * Best-effort decode of a top-level instruction's `info` (amounts, owners,
+ * authorities) from raw data on the pre-sign path, mirroring the jsonParsed `info`
+ * shape so the info-dependent heuristics (unlimited-approval escalation, the
+ * benign-init downgrade) fire here too, not just on the confirmed path. Only the
+ * fields the rules consume are decoded. Returns undefined for everything else.
+ *
+ * SPL Token discriminators are 1 byte (amount at data[1..9]); System discriminators
+ * are u32 LE = 4 bytes (pubkey args start at data[4]).
+ */
+export function buildIxInfo(
+  parsedType: string | undefined,
+  data: Buffer,
+  accounts: string[],
+): Record<string, unknown> | undefined {
+  if (!parsedType) return undefined;
+  const pk = (start: number, end: number): string | undefined => {
+    if (start < 0 || data.length < end) return undefined;
+    try {
+      return new PublicKey(data.subarray(start, end)).toBase58();
+    } catch {
+      return undefined;
+    }
+  };
+  const u64 = (off: number): string | undefined =>
+    data.length >= off + 8 ? data.readBigUInt64LE(off).toString() : undefined;
+
+  switch (parsedType) {
+    case "approve":
+      return { source: accounts[0], delegate: accounts[1], owner: accounts[2], amount: u64(1) };
+    case "approveChecked":
+      return {
+        source: accounts[0],
+        mint: accounts[1],
+        delegate: accounts[2],
+        owner: accounts[3],
+        tokenAmount: { amount: u64(1), decimals: data.length >= 10 ? data[9] : undefined },
+      };
+    case "setAuthority": {
+      const types = ["mintTokens", "freezeAccount", "accountOwner", "closeAccount"];
+      const hasNew = data.length >= 3 && data[2] === 1;
+      return {
+        account: accounts[0],
+        authority: accounts[1],
+        authorityType: data.length >= 2 ? types[data[1]] : undefined,
+        newAuthority: hasNew ? pk(3, 35) : undefined,
+      };
+    }
+    case "assign":
+      return { account: accounts[0], owner: pk(4, 36) };
+    case "assignWithSeed":
+      return { account: accounts[0], owner: pk(data.length - 32, data.length) };
+    case "authorizeNonce":
+      return { nonceAccount: accounts[0], newAuthority: pk(4, 36) };
+    default:
+      return undefined;
+  }
+}
+
 export async function simulateAndReview(
   rawBase64: string,
   cluster: Cluster = "mainnet-beta",
@@ -274,23 +333,22 @@ export async function simulateAndReview(
     );
   }
 
-  // NOTE: the pre-sign path carries the instruction TYPE (parsedType) but not the
-  // parsed `info` fields (amounts, owners, authorityType) that the confirmed
-  // jsonParsed path provides. So info-dependent ESCALATIONS (e.g. unlimited-approval
-  // -> high, the benign-init downgrade) degrade to the base finding here. The base
-  // findings still fire and the circuit breaker still gates them to a human, so the
-  // signing decision is preserved; only severity granularity is reduced. Decoding
-  // `info` from raw instruction data on this path is a follow-up (see STRATEGY-PLAN).
+  // Top-level instructions carry their data, so we decode both the type AND the
+  // `info` fields the heuristics consume (amounts, owners, authorities), matching the
+  // confirmed jsonParsed path. Inner (CPI) instructions come from simulation without
+  // data, so they get type/accounts only.
   (decompiled?.instructions ?? []).forEach((ix, topIndex) => {
     const programId = ix.programId.toBase58();
     const decoded = decodeIxType(programId, ix.data as Buffer);
+    const accounts = ix.keys.map((k) => k.pubkey.toBase58());
     const parent: InstructionSummary = {
       index: seq++,
       programId,
       programName: resolveProgram(programId)?.name,
       program: decoded.program,
       parsedType: decoded.parsedType,
-      accounts: ix.keys.map((k) => k.pubkey.toBase58()),
+      accounts,
+      info: buildIxInfo(decoded.parsedType, ix.data as Buffer, accounts),
       isInner: false,
     };
     instructions.push(parent);

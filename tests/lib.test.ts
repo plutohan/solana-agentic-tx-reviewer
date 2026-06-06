@@ -3,7 +3,7 @@
  * Covers the base-unit -> UI conversion and the pre-sign instruction decoder.
  */
 import { rawToUi } from "../src/lib/parse";
-import { decodeIxType } from "../src/lib/presign";
+import { decodeIxType, buildIxInfo } from "../src/lib/presign";
 import {
   TOKEN_PROGRAM_ID,
   TOKEN_2022_PROGRAM_ID,
@@ -55,6 +55,20 @@ check("system 2 -> transfer", sys(2).parsedType === "transfer");
 check("system 4 -> advanceNonce", sys(4).parsedType === "advanceNonce");
 check("system 5 -> withdrawFromNonce (matches RPC jsonParsed)", sys(5).parsedType === "withdrawFromNonce");
 check("system 7 -> authorizeNonce (matches RPC jsonParsed)", sys(7).parsedType === "authorizeNonce");
+
+// buildIxInfo: pre-sign instruction info decoding, so escalations fire before signing.
+const approveMaxData = Buffer.from([3, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff]);
+const apInfo = buildIxInfo("approve", approveMaxData, ["src", "del", "own"]) as Record<string, unknown>;
+check("buildIxInfo approve decodes u64-max amount", apInfo?.amount === "18446744073709551615");
+check("buildIxInfo approve decodes delegate from keys", apInfo?.delegate === "del");
+const assignData = Buffer.concat([Buffer.from([1, 0, 0, 0]), Buffer.alloc(32, 7)]);
+const asInfo = buildIxInfo("assign", assignData, ["acct"]) as Record<string, unknown>;
+check("buildIxInfo assign decodes account + owner", asInfo?.account === "acct" && typeof asInfo?.owner === "string" && (asInfo.owner as string).length >= 32);
+const setAuthData = Buffer.concat([Buffer.from([6, 2, 1]), Buffer.alloc(32, 9)]);
+const saInfo = buildIxInfo("setAuthority", setAuthData, ["acct", "auth"]) as Record<string, unknown>;
+check("buildIxInfo setAuthority decodes authorityType + newAuthority", saInfo?.authorityType === "accountOwner" && typeof saInfo?.newAuthority === "string");
+const authNonceData = Buffer.concat([Buffer.from([7, 0, 0, 0]), Buffer.alloc(32, 5)]);
+check("buildIxInfo authorizeNonce decodes newAuthority", typeof (buildIxInfo("authorizeNonce", authNonceData, ["nonce"]) as Record<string, unknown>)?.newAuthority === "string");
 
 // decodeIxType: Compute Budget, Associated Token Account, Memo (richer pre-sign labeling).
 const COMPUTE_BUDGET = "ComputeBudget111111111111111111111111111111";
