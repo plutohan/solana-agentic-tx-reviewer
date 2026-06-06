@@ -206,6 +206,14 @@ export const FIXTURES: Fixture[] = [
     instructions: [ix("JUP6LkbXfake1111111111111111111111111111111")],
     note: "program address mimics Jupiter v6's 7-char prefix -> PROGRAM_IMPERSONATION (high)",
   }),
+  mk("cosigner-sol-drain", "risky", true, {
+    accounts: [
+      acct(SIGNER, { signer: true, writable: true }),
+      acct("Cos1gnerWa11et11111111111111111111111111111", { signer: true, writable: true, solChangeLamports: -11_000_000_000, solChangeSol: -11 }),
+    ],
+    instructions: [ix(SYSTEM, { program: "system", parsedType: "transfer" })],
+    note: "a co-signer (not the fee payer) loses 11 SOL -> LARGE_SOL_OUTFLOW must fire on a non-fee-payer signer",
+  }),
   mk("durable-nonce", "benign", false, {
     accounts: [signer()],
     instructions: [

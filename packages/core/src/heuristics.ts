@@ -120,23 +120,34 @@ function checkImpersonation(tx: ParsedTransaction): RiskFinding[] {
   return findings;
 }
 
-function checkFeePayerSolOutflow(tx: ParsedTransaction): RiskFinding | null {
-  const feePayer = tx.accounts.find((a) => a.pubkey === tx.feePayer);
-  if (!feePayer) return null;
-  const outflow = -feePayer.solChangeSol; // positive == losing SOL
-  if (outflow <= THRESHOLDS.largeSolOutflow) return null;
-  const level: RiskLevel =
-    outflow >= THRESHOLDS.veryLargeSolOutflow ? "high" : "medium";
-  return {
-    id: "LARGE_SOL_OUTFLOW",
-    title: `Signing wallet sends ${formatSol(outflow)} SOL`,
-    level,
-    detail:
-      "The fee payer has a large net SOL decrease. Confirm the destination and amount are expected — large outflows are common in both legitimate transfers and drains.",
-    evidence: [
-      `Net change for ${shortPubkey(tx.feePayer)}: -${formatSol(outflow)} SOL (includes ${formatSol(tx.feeSol)} SOL fee)`,
-    ],
-  };
+function checkSignerSolOutflow(tx: ParsedTransaction): RiskFinding[] {
+  // Every signer, not just the fee payer: in a co-signed transaction a
+  // non-fee-payer signer can be the one whose SOL is drained, and nothing else
+  // catches that. Reuse the swap context so a signer who got value back through
+  // a DEX (a SOL-for-token swap) is not mislabeled as drained.
+  const findings: RiskFinding[] = [];
+  const { dexPresent, inflowOwners } = buildSwapContext(tx);
+  for (const signer of tx.signers) {
+    const acct = tx.accounts.find((a) => a.pubkey === signer);
+    if (!acct) continue;
+    const outflow = -acct.solChangeSol; // positive == losing SOL
+    if (outflow <= THRESHOLDS.largeSolOutflow) continue;
+    if (dexPresent && inflowOwners.has(signer)) continue;
+    const level: RiskLevel =
+      outflow >= THRESHOLDS.veryLargeSolOutflow ? "high" : "medium";
+    const isFeePayer = signer === tx.feePayer;
+    findings.push({
+      id: "LARGE_SOL_OUTFLOW",
+      title: `Signing wallet sends ${formatSol(outflow)} SOL`,
+      level,
+      detail:
+        "A signing wallet has a large net SOL decrease. Confirm the destination and amount are expected. Large outflows are common in both legitimate transfers and drains.",
+      evidence: [
+        `Net change for ${shortPubkey(signer)}: -${formatSol(outflow)} SOL${isFeePayer ? ` (includes ${formatSol(tx.feeSol)} SOL fee)` : ""}`,
+      ],
+    });
+  }
+  return findings;
 }
 
 const DUST_LAMPORTS = 1_000_000; // 0.001 SOL — below this, an inflow is "dust"
@@ -509,7 +520,7 @@ const RULES: Array<(tx: ParsedTransaction) => RiskFinding | RiskFinding[] | null
     checkWatchlist,
     checkUnknownPrograms,
     checkImpersonation,
-    checkFeePayerSolOutflow,
+    checkSignerSolOutflow,
     checkTokenMovements,
     checkAuthorityChanges,
     checkDelegations,
