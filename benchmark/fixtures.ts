@@ -201,6 +201,11 @@ export const FIXTURES: Fixture[] = [
     instructions: [ix(SYSTEM, { program: "system", parsedType: "authorizeNonce", info: { newAuthority: ATTACKER } })],
     note: "hands a durable-nonce account to a new authority -> NONCE_AUTHORITY_CHANGE (high)",
   }),
+  mk("program-impersonation", "risky", true, {
+    accounts: [signer()],
+    instructions: [ix("JUP6LkbXfake1111111111111111111111111111111")],
+    note: "program address mimics Jupiter v6's 7-char prefix -> PROGRAM_IMPERSONATION (high)",
+  }),
   mk("durable-nonce", "benign", false, {
     accounts: [signer()],
     instructions: [

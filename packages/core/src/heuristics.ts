@@ -16,7 +16,13 @@ import type {
   RiskLevel,
   RiskReport,
 } from "./types.js";
-import { isDexProgram, isKnownProgram, WSOL_MINT } from "./programs.js";
+import {
+  isDexProgram,
+  isKnownProgram,
+  resolveProgram,
+  KNOWN_PROGRAMS,
+  WSOL_MINT,
+} from "./programs.js";
 import { lookupWatch } from "./watchlist.js";
 import { formatSol, formatTokenAmount, shortPubkey } from "./format.js";
 
@@ -83,6 +89,35 @@ function checkUnknownPrograms(tx: ParsedTransaction): RiskFinding | null {
       (p) => `${p.programId} (${p.count} instruction${p.count > 1 ? "s" : ""})`,
     ),
   };
+}
+
+function checkImpersonation(tx: ParsedTransaction): RiskFinding[] {
+  const findings: RiskFinding[] = [];
+  const known = Object.keys(KNOWN_PROGRAMS);
+  const PREFIX = 7; // a 7-char base58 prefix collision is ~1 in 58^7: never coincidental.
+  for (const p of tx.programsInvoked) {
+    if (isKnownProgram(p.programId)) continue;
+    for (const k of known) {
+      if (k === p.programId) continue;
+      let i = 0;
+      const max = Math.min(PREFIX, k.length, p.programId.length);
+      while (i < max && k[i] === p.programId[i]) i++;
+      if (i >= PREFIX) {
+        findings.push({
+          id: "PROGRAM_IMPERSONATION",
+          title: "Program mimics a known program's address",
+          level: "high",
+          detail:
+            "A program here is not the real one, but its address shares a long prefix with a well-known program. That is the signature of a vanity impersonation or phishing program. Verify the exact program id before trusting it.",
+          evidence: [
+            `${shortPubkey(p.programId)} resembles ${resolveProgram(k)?.name ?? shortPubkey(k)} (${shortPubkey(k)})`,
+          ],
+        });
+        break;
+      }
+    }
+  }
+  return findings;
 }
 
 function checkFeePayerSolOutflow(tx: ParsedTransaction): RiskFinding | null {
@@ -473,6 +508,7 @@ const RULES: Array<(tx: ParsedTransaction) => RiskFinding | RiskFinding[] | null
     checkFailed,
     checkWatchlist,
     checkUnknownPrograms,
+    checkImpersonation,
     checkFeePayerSolOutflow,
     checkTokenMovements,
     checkAuthorityChanges,
