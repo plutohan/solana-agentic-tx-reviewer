@@ -53,6 +53,8 @@ check("system 0 -> createAccount (system)", sys(0).parsedType === "createAccount
 check("system 1 -> assign", sys(1).parsedType === "assign");
 check("system 2 -> transfer", sys(2).parsedType === "transfer");
 check("system 4 -> advanceNonce", sys(4).parsedType === "advanceNonce");
+check("system 5 -> withdrawFromNonce (matches RPC jsonParsed)", sys(5).parsedType === "withdrawFromNonce");
+check("system 7 -> authorizeNonce (matches RPC jsonParsed)", sys(7).parsedType === "authorizeNonce");
 
 // decodeIxType: Compute Budget, Associated Token Account, Memo (richer pre-sign labeling).
 const COMPUTE_BUDGET = "ComputeBudget111111111111111111111111111111";

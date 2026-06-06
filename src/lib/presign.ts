@@ -274,6 +274,13 @@ export async function simulateAndReview(
     );
   }
 
+  // NOTE: the pre-sign path carries the instruction TYPE (parsedType) but not the
+  // parsed `info` fields (amounts, owners, authorityType) that the confirmed
+  // jsonParsed path provides. So info-dependent ESCALATIONS (e.g. unlimited-approval
+  // -> high, the benign-init downgrade) degrade to the base finding here. The base
+  // findings still fire and the circuit breaker still gates them to a human, so the
+  // signing decision is preserved; only severity granularity is reduced. Decoding
+  // `info` from raw instruction data on this path is a follow-up (see STRATEGY-PLAN).
   (decompiled?.instructions ?? []).forEach((ix, topIndex) => {
     const programId = ix.programId.toBase58();
     const decoded = decodeIxType(programId, ix.data as Buffer);

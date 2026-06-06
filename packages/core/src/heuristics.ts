@@ -237,13 +237,39 @@ function checkAuthorityChanges(tx: ParsedTransaction): RiskFinding[] {
       ix.program === "system" &&
       (ix.parsedType === "assign" || ix.parsedType === "assignWithSeed")
     ) {
+      const owner = str(ix.info?.owner);
+      const account = str(ix.info?.account);
+      const hasInfo = !!owner || !!account;
+      // Assigning a brand-new, non-signer account to a KNOWN program is routine
+      // initialization (PDA setup). The dangerous shape is reassigning a signer's
+      // OWN account, or assigning to an unknown program. Without info (pre-sign
+      // path), fail safe and treat it as dangerous.
+      const benignInit =
+        hasInfo &&
+        !!owner &&
+        isKnownProgram(owner) &&
+        !(account && tx.signers.includes(account));
+      if (!benignInit) {
+        findings.push({
+          id: "ACCOUNT_REASSIGN",
+          title: "Reassigns account ownership (System Assign)",
+          level: "high",
+          detail:
+            "A System Assign changes which program owns an account. Reassigning the owner of your own account to an attacker program is a top wallet-drain vector, and it often shows no balance change in a simulation. Verify this is expected.",
+          evidence: owner
+            ? [`Assigns to owner ${shortPubkey(owner)}`]
+            : ["Reassigns account ownership"],
+        });
+      }
+    }
+    if (ix.program === "system" && ix.parsedType === "authorizeNonce") {
       findings.push({
-        id: "ACCOUNT_REASSIGN",
-        title: "Reassigns account ownership (System Assign)",
+        id: "NONCE_AUTHORITY_CHANGE",
+        title: "Changes a nonce account authority",
         level: "high",
         detail:
-          "A System Assign changes which program owns an account. Reassigning the owner of your own account to an attacker program is a top wallet-drain vector, and it often shows no balance change in a simulation. Verify this is expected.",
-        evidence: [`Assigns to owner ${shortPubkey(str(ix.info?.owner))}`],
+          "An AuthorizeNonceAccount hands control of a durable-nonce account to a new authority. Combined with a durable-nonce transaction this enables delayed, attacker-controlled execution.",
+        evidence: [`New nonce authority ${shortPubkey(str(ix.info?.newAuthority))}`],
       });
     }
   }
@@ -260,7 +286,12 @@ function checkDelegations(tx: ParsedTransaction): RiskFinding[] {
         str(ix.info?.amount) ||
         str((ix.info?.tokenAmount as Record<string, unknown> | undefined)?.amount) ||
         "an amount";
-      const unlimited = amount === "18446744073709551615"; // u64 max
+      let unlimited = false;
+      try {
+        unlimited = BigInt(amount) >= 1n << 63n; // >= 2^63 is effectively unlimited
+      } catch {
+        unlimited = false;
+      }
       findings.push({
         id: "TOKEN_DELEGATE_APPROVE",
         title: unlimited
@@ -428,9 +459,12 @@ function checkDurableNonce(tx: ParsedTransaction): RiskFinding | null {
   return {
     id: "DURABLE_NONCE_PRESENT",
     title: "Uses a durable nonce (delayed execution)",
-    level: "medium",
+    // Informational on its own (durable nonces are also used by multisig and custody).
+    // It does not block by itself; the risk is real only combined with a harmful action,
+    // which raises the overall level separately.
+    level: "low",
     detail:
-      "An AdvanceNonceAccount makes this transaction valid indefinitely instead of for the usual ~2 minutes. A signed durable-nonce transaction can be held and submitted later, when conditions favor an attacker. Verify why a durable nonce is needed.",
+      "An AdvanceNonceAccount makes this transaction valid indefinitely instead of for the usual ~2 minutes. A signed durable-nonce transaction can be held and submitted later, when conditions favor an attacker. Verify why a durable nonce is needed, especially alongside any authority change or approval.",
   };
 }
 

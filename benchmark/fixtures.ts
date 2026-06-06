@@ -196,13 +196,26 @@ export const FIXTURES: Fixture[] = [
     instructions: [ix(TOKEN, { program: "spl-token", parsedType: "approve", info: { delegate: ATTACKER, amount: "18446744073709551615" } })],
     note: "approve for u64-max (unlimited) -> TOKEN_DELEGATE_APPROVE escalated to high",
   }),
-  mk("durable-nonce", "risky", true, {
+  mk("nonce-authority-change", "risky", true, {
+    accounts: [signer()],
+    instructions: [ix(SYSTEM, { program: "system", parsedType: "authorizeNonce", info: { newAuthority: ATTACKER } })],
+    note: "hands a durable-nonce account to a new authority -> NONCE_AUTHORITY_CHANGE (high)",
+  }),
+  mk("durable-nonce", "benign", false, {
     accounts: [signer()],
     instructions: [
       ix(SYSTEM, { program: "system", parsedType: "advanceNonce" }),
       ix(SYSTEM, { program: "system", parsedType: "transfer" }),
     ],
-    note: "AdvanceNonceAccount makes the tx valid indefinitely -> DURABLE_NONCE_PRESENT (delayed-execution risk)",
+    note: "a durable nonce ALONE is a timing property (legit multisig/custody use it); flagged only at low, never auto-blocked",
+  }),
+  mk("benign-account-init", "benign", false, {
+    accounts: [signer()],
+    instructions: [
+      ix(SYSTEM, { program: "system", parsedType: "createAccount" }),
+      ix(SYSTEM, { program: "system", parsedType: "assign", info: { account: "NewPda1111111111111111111111111111111111111", owner: TOKEN } }),
+    ],
+    note: "assigning a fresh non-signer account to a KNOWN program is routine init; ACCOUNT_REASSIGN must NOT fire",
   }),
 
   // ---- honest probes (these are WHY precision/recall is not 100%) ----
