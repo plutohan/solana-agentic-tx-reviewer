@@ -28,5 +28,12 @@ npm run benchmark
 2. **`UNKNOWN_PROGRAM` over-flags (FP).** A legitimate protocol not in the small registry trips `medium`. "Unknown" is not "malicious"; this needs a much larger program registry and/or a softer level.
 3. **Dust-relabel evasion (FN).** A real drain that sends 2 base units of a junk token back through a DEX passes the weak `> 1` base-unit inflow guard and relabels to `TOKEN_SWAP` (low). The swap-back guard should be **value-based**, not a raw base-unit count.
 
+## Attack database (the source of truth for fixtures + rules)
+[`attacks.json`](attacks.json) + [`ATTACKS.md`](ATTACKS.md) are a **source-verified database of 90 real-world Solana transaction attacks** (deep multi-agent research, every entry cited to incidents/security-vendor reports/the SolPhishHunter paper). Each is tagged with whether a pre-sign simulation catches it, whether the action is irreversible, and which of our rules covers it or `GAP`.
+
+Two headline numbers from it:
+- **67 of 90 are not fully simulation-detectable** (25 "no", 42 "partial"). This is the case for static, instruction-level review over simulation-only tools.
+- **38 of 90 are gaps** in our current rules. Those `suggestedRule` / `suggestedFixture` fields are the detection backlog and the next fixtures to add.
+
 ## Honest scope
-This is a **synthetic seed corpus** (hand-built, no network), so it measures rule logic, not real-world prevalence. The next step is capturing real on-chain transactions (benign swaps across Jupiter/Raydium/Orca and known drainer/approval/authority-change incidents) into the same `Fixture` shape. The runner and metrics are built to grow with that; the goal is to track precision/recall as the corpus and the rules evolve.
+The fixtures here are still a **synthetic seed corpus** (hand-built, no live RPC), so they measure rule logic, not real-world prevalence. The attack database above is the bridge: the next step is turning its entries (and captured on-chain transactions) into fixtures so precision/recall track real coverage as the corpus and the rules evolve.
