@@ -4,7 +4,7 @@ This document is the authoritative specification for the risk engine in the **So
 
 > **What this tool is.** A lightweight, AI-assisted, **read-only** Solana transaction reviewer. You give it a transaction (a confirmed signature, or an unsigned transaction to simulate). The app normalizes it into a shared data model, runs the deterministic heuristics described here, and produces a human-readable explanation plus a risk report. It is a proof-of-concept I built for the Superteam Agentic Engineering micro-grant. It does **not** sign, send, or mutate anything on-chain. Pre-sign *simulation* of an unsigned transaction is now built and shipped (see [§7](#7-pre-sign-simulation-shipped)).
 
-> **These are the rules that run in production.** This is not a spec for a future engine. The same `assessRisk()` and the same 18 heuristics documented here run in the live deployed app and on the pre-sign (simulated) path. One engine, one rule set, both paths. Nothing in §4 is path-specific.
+> **These are the rules that run in production.** This is not a spec for a future engine. The same `assessRisk()` and the same 23 heuristics documented here run in the live deployed app and on the pre-sign (simulated) path. One engine, one rule set, both paths. Nothing in §4 is path-specific.
 
 **Pipeline.** `RPC fetch (or simulate) → parse() → enrich → assessRisk() → explainTransaction() → ReviewResult`
 
@@ -135,30 +135,35 @@ Related constants in the same family (not in `THRESHOLDS`):
 
 ## 4. The rules
 
-There are **18 heuristics** (rule IDs), evaluated in the order the rule functions appear in the `RULES` array. A rule function returns one finding, an array of findings, or `null`. The two newest IDs, `TOKEN_SWAP` (§4.5) and `FLAGGED_ADDRESS` (§4.18), were added in the precision-tuning round.
+There are **23 heuristics** (rule IDs), evaluated in the order the rule functions appear in the `RULES` array. A rule function returns one finding, an array of findings, or `null`. The five newest IDs, `PROGRAM_IMPERSONATION` (§4.19), `NONCE_AUTHORITY_CHANGE` (§4.20), `TOKEN_BURN` (§4.21), `TOKEN_FREEZE` (§4.22), and `DURABLE_NONCE_PRESENT` (§4.23), were added in the irreversibility-coverage round.
 
 | #  | ID | Level(s) | Trigger (short) |
 | -- | -- | -------- | --------------- |
 | 1  | `TX_FAILED` | `info` | `meta.err != null` (`tx.success === false`) |
 | 2  | `FLAGGED_ADDRESS` | `medium` (burn) / `high` (other) | an account or program ID matches the curated watchlist |
 | 3  | `UNKNOWN_PROGRAM` | `medium` | invokes ≥1 program not in the registry |
-| 4  | `LARGE_SOL_OUTFLOW` | `medium` (≥1 SOL) / `high` (≥10 SOL) | fee payer net SOL decrease past threshold |
-| 5  | `TOKEN_SWAP` | `low` | signer's would-be drain/outflow, but value came back via a known DEX |
-| 6  | `FULL_TOKEN_ACCOUNT_DRAIN` | `high` | signer-owned token account `pre > 0` and `post == 0` |
-| 7  | `LARGE_TOKEN_OUTFLOW` | `low` (≥50%) / `medium` (≥90%) | signer-owned partial token decrease as a % of prior balance |
-| 8  | `SET_AUTHORITY` | `high` | spl-token `setAuthority` |
-| 9  | `ACCOUNT_REASSIGN` | `medium` | system `assign` |
-| 10 | `TOKEN_DELEGATE_APPROVE` | `medium` | spl-token `approve` / `approveChecked` |
-| 11 | `CLOSE_TOKEN_ACCOUNT` | `medium` | spl-token `closeAccount` |
-| 12 | `PROGRAM_DEPLOY_OR_UPGRADE` | `medium` | BPF Upgradeable Loader involved |
-| 13 | `MANY_WRITABLE_ACCOUNTS` | `low` | writable account count ≥ 12 |
-| 14 | `HIGH_FEE` | `low` | fee > 0.01 SOL |
-| 15 | `NEW_ACCOUNT_CREATION` | `info` | system `createAccount` / `createAccountWithSeed` / `allocate` |
-| 16 | `MULTIPLE_SIGNERS` | `info` | more than 1 signer |
-| 17 | `COMPUTE_BUDGET_SET` | `info` | Compute Budget program used |
-| 18 | `MEMO_PRESENT` | `info` | Memo program used |
+| 4  | `PROGRAM_IMPERSONATION` | `high` | an invoked unknown program shares a 7+ char address prefix with a known program |
+| 5  | `LARGE_SOL_OUTFLOW` | `medium` (≥1 SOL) / `high` (≥10 SOL) | fee payer net SOL decrease past threshold |
+| 6  | `TOKEN_SWAP` | `low` | signer's would-be drain/outflow, but value came back via a known DEX |
+| 7  | `FULL_TOKEN_ACCOUNT_DRAIN` | `high` | signer-owned token account `pre > 0` and `post == 0` |
+| 8  | `LARGE_TOKEN_OUTFLOW` | `low` (≥50%) / `medium` (≥90%) | signer-owned partial token decrease as a % of prior balance |
+| 9  | `SET_AUTHORITY` | `high` | spl-token `setAuthority` |
+| 10 | `ACCOUNT_REASSIGN` | `high` | system `assign` / `assignWithSeed`, context-gated (skips routine init) |
+| 11 | `NONCE_AUTHORITY_CHANGE` | `high` | system `authorizeNonce` |
+| 12 | `TOKEN_DELEGATE_APPROVE` | `medium` / `high` (unlimited) | spl-token `approve` / `approveChecked` |
+| 13 | `CLOSE_TOKEN_ACCOUNT` | `medium` | spl-token `closeAccount` |
+| 14 | `TOKEN_BURN` | `high` | spl-token `burn` / `burnChecked` |
+| 15 | `TOKEN_FREEZE` | `high` | spl-token `freezeAccount` |
+| 16 | `PROGRAM_DEPLOY_OR_UPGRADE` | `medium` | BPF Upgradeable Loader involved |
+| 17 | `MANY_WRITABLE_ACCOUNTS` | `low` | writable account count ≥ 12 |
+| 18 | `HIGH_FEE` | `low` | fee > 0.01 SOL |
+| 19 | `NEW_ACCOUNT_CREATION` | `info` | system `createAccount` / `createAccountWithSeed` / `allocate` |
+| 20 | `MULTIPLE_SIGNERS` | `info` | more than 1 signer |
+| 21 | `COMPUTE_BUDGET_SET` | `info` | Compute Budget program used |
+| 22 | `MEMO_PRESENT` | `info` | Memo program used |
+| 23 | `DURABLE_NONCE_PRESENT` | `low` | system `advanceNonce` (durable-nonce transaction) |
 
-> **Note on counting and the three token-movement IDs.** `TOKEN_SWAP`, `FULL_TOKEN_ACCOUNT_DRAIN`, and `LARGE_TOKEN_OUTFLOW` are all emitted by a single rule function, `checkTokenMovements`. They are **mutually exclusive per account** (see §4.5–§4.7). Rules that emit **at most one** finding per transaction: `TX_FAILED`, `UNKNOWN_PROGRAM`, `LARGE_SOL_OUTFLOW`, `PROGRAM_DEPLOY_OR_UPGRADE`, `MANY_WRITABLE_ACCOUNTS`, `HIGH_FEE`, `NEW_ACCOUNT_CREATION`, `MULTIPLE_SIGNERS`, `COMPUTE_BUDGET_SET`, `MEMO_PRESENT`. **Per-occurrence** rules (can emit several findings, later deduped by §2): `FLAGGED_ADDRESS`, the three token-movement IDs, `SET_AUTHORITY`, `ACCOUNT_REASSIGN`, `TOKEN_DELEGATE_APPROVE`, `CLOSE_TOKEN_ACCOUNT`.
+> **Note on counting and the three token-movement IDs.** `TOKEN_SWAP`, `FULL_TOKEN_ACCOUNT_DRAIN`, and `LARGE_TOKEN_OUTFLOW` are all emitted by a single rule function, `checkTokenMovements`. They are **mutually exclusive per account** (see §4.5–§4.7). Rules that emit **at most one** finding per transaction: `TX_FAILED`, `UNKNOWN_PROGRAM`, `LARGE_SOL_OUTFLOW`, `PROGRAM_DEPLOY_OR_UPGRADE`, `MANY_WRITABLE_ACCOUNTS`, `HIGH_FEE`, `NEW_ACCOUNT_CREATION`, `MULTIPLE_SIGNERS`, `COMPUTE_BUDGET_SET`, `MEMO_PRESENT`, `DURABLE_NONCE_PRESENT`. **Per-occurrence** rules (can emit several findings, later deduped by §2): `FLAGGED_ADDRESS`, `PROGRAM_IMPERSONATION`, the three token-movement IDs, `SET_AUTHORITY`, `ACCOUNT_REASSIGN`, `NONCE_AUTHORITY_CHANGE`, `TOKEN_DELEGATE_APPROVE`, `CLOSE_TOKEN_ACCOUNT`, `TOKEN_BURN`, `TOKEN_FREEZE`.
 
 > **Same rules run on the pre-sign (simulated) path.** Everything in §4 is computed from a `ParsedTransaction`, and the pre-sign path (§7) emits the exact same `ParsedTransaction` shape with `simulated: true`. So every rule here fires identically on a simulated transaction, with no separate risk logic. Two things are worth knowing about the simulated inputs. First, the token deltas come from **simulated** post-state (a diff of pre-state against the simulated accounts the RPC returns), not from confirmed `pre/postTokenBalances`. Second, the `program`/`parsedType` fields that the instruction-level rules (§4.8–§4.11) key off are recovered for the simulated path by a small **SPL Token / System discriminator decoder** that maps raw instruction data back to the same type strings the confirmed (jsonParsed) path produces. Instructions from other programs degrade gracefully: they keep program-level signals plus the balance and watchlist rules (`UNKNOWN_PROGRAM`, `LARGE_SOL_OUTFLOW`, the token-movement IDs, `FLAGGED_ADDRESS`, and so on), but their instruction *type* is not decoded, so a `parsedType`-dependent rule will not fire on them.
 
@@ -294,26 +299,26 @@ Helper context (`buildSwapContext(tx)`) computes two things once per transaction
 
 ### 4.9 `ACCOUNT_REASSIGN`: reassigns account ownership (System Assign)
 
-- **Level:** `medium`
-- **Trigger:** An instruction with parsed `program === "system"` and `parsedType === "assign"`. One finding per occurrence.
-- **Rationale:** A System `Assign` changes which *program* owns an account. Reassigning ownership hands the account's future behavior to a different program. Meaningful for account-level control and worth confirming against the operation you intended.
-- **Evidence:** `Assigns to owner <shortPubkey(owner)>`.
-- **Example:** A setup flow assigns a freshly created account to a custom program → `medium`.
+- **Level:** `high`, and **context-gated**. The rule does **not** fire for a routine init (assigning a *fresh, non-signer* account to a *known* program). It fires (high) when the reassigned account is a **signer's own** account, when the new owner is an **unknown** program, or when the parsed `info` is **unavailable** (the pre-sign path), where it fails safe.
+- **Trigger:** An instruction with parsed `program === "system"` and `parsedType === "assign"` **or** `parsedType === "assignWithSeed"`. It is suppressed only for the benign-init shape: parsed `info` is present, the new `owner` is a known program (`isKnownProgram(owner)`), and the assigned `account` is not in `tx.signers`. Anything else emits the finding. One finding per occurrence.
+- **Rationale:** A System `Assign` changes which *program* owns an account. Reassigning the owner of *your own* account to an attacker program is a top wallet-drain vector, and it often shows no balance change in a simulation, so a simple "did value move" check misses it entirely. Routine create-then-assign PDA setup (a fresh non-signer account handed to a known program) is the benign case the gate excludes, so the rule stays high-signal.
+- **Evidence:** `Assigns to owner <shortPubkey(owner)>` (or `Reassigns account ownership` when the owner is not parsed).
+- **Example:** An attacker flow reassigns the signer's own account to an unfamiliar program → `high`. A setup flow assigning a fresh non-signer account to a known program (System PDA init) → no finding.
 - **False positive / negative:**
-  - **False positive:** Common and benign during account initialization (create-then-assign patterns). Medium severity reflects "verify this is expected," not "this is wrong."
-  - **False negative:** Only matches the parsed System `assign` type. Ownership transfers performed by other means are not detected here.
+  - **False positive:** Reduced by the init gate, but a reassignment to an unknown owner that you genuinely intended will still fire at `high`. That is by design, since this is a high-blast-radius action worth confirming.
+  - **False negative:** Only matches the parsed System `assign` / `assignWithSeed` types. Ownership transfers performed by other means are not detected here. The benign-init suppression is deliberately narrow (known owner *and* non-signer account *and* parsed info present), so it cannot hide a dangerous reassignment.
 
 ---
 
 ### 4.10 `TOKEN_DELEGATE_APPROVE`: approves a token delegate
 
-- **Level:** `medium`
-- **Trigger:** A token-program instruction with `parsedType === "approve"` **or** `parsedType === "approveChecked"`. One finding per occurrence.
-- **Rationale:** `Approve` grants another address (a delegate) the standing right to move tokens out of the account *later*, without a fresh signature. Malicious dApps abuse delegate approvals to set up a drain they execute after you have moved on. This is one of the most important "looks harmless now, dangerous later" patterns in SPL Token.
-- **Evidence:** `Delegate <shortPubkey(delegate)> approved for <amount>` (amount is read from `info.amount`, falling back to `info.tokenAmount.amount`, then to `"an amount"`).
-- **Example:** A "connect and approve" flow grants an unfamiliar delegate approval for a very large amount → `medium`.
+- **Level:** `medium`, escalating to **`high`** when the approved amount is effectively **unlimited** (`>= 2^63`, e.g. u64 max). An unlimited approval is a hallmark of drainer setups, so it is treated as a high-blast-radius action.
+- **Trigger:** A token-program instruction with `parsedType === "approve"` **or** `parsedType === "approveChecked"`. The amount is read from `info.amount`, falling back to `info.tokenAmount.amount`. If that parsed amount is `>= 2^63` (i.e. `1n << 63n` or larger, which covers u64 max), the finding is `high`; otherwise `medium`. One finding per occurrence.
+- **Rationale:** `Approve` grants another address (a delegate) the standing right to move tokens out of the account *later*, without a fresh signature. Malicious dApps abuse delegate approvals to set up a drain they execute after you have moved on. This is one of the most important "looks harmless now, dangerous later" patterns in SPL Token. An *unlimited* approval removes even the per-amount ceiling, so the delegate can sweep the entire balance whenever it likes, which is why it escalates to `high`.
+- **Evidence:** `Delegate <shortPubkey(delegate)> approved for <amount>`, or `... approved for an UNLIMITED amount (u64 max)` when the amount is effectively unlimited.
+- **Example:** A "connect and approve" flow grants an unfamiliar delegate a bounded approval → `medium`. The same flow granting a u64-max (unlimited) approval → `high`.
 - **False positive / negative:**
-  - **False positive:** Many legitimate protocols (lending, escrow, some DEX flows) use delegation as a normal mechanic.
+  - **False positive:** Many legitimate protocols (lending, escrow, some DEX flows) use delegation as a normal mechanic, and some legitimately request a large or unlimited approval. The level reflects blast radius, not proven intent.
   - **False negative:** Only `approve` / `approveChecked` parsed types match. The rule flags the *grant*. It cannot know whether the delegate will ever act on it. A reviewer should weigh the delegate's identity and the approved amount.
 
 ---
@@ -415,9 +420,76 @@ Helper context (`buildSwapContext(tx)`) computes two things once per transaction
 
 ---
 
+### 4.19 `PROGRAM_IMPERSONATION`: program mimics a known program's address
+
+- **Level:** `high`
+- **Trigger:** For each invoked program that is **not** in the registry, the rule compares its address against every known program ID. If the unknown address shares a **prefix of 7 base58 characters or longer** with a known program (and is not that program), it emits a finding. The `PREFIX` constant is `7`. One finding per impersonating program.
+- **Rationale:** A 7-character base58 prefix collision is roughly 1 in `58^7`, so it is essentially never coincidental. An unknown program whose address starts with the same long prefix as a well-known one is the signature of a **vanity impersonation / phishing** program. The attacker grinds a vanity address that *looks* like the real program at a glance, hoping a reviewer waves it through. This rule catches that look-alike directly.
+- **Evidence:** `<shortPubkey(impostor)> resembles <known program name> (<shortPubkey(known)>)`.
+- **Example:** An unknown program whose address shares the first 8 characters with the SPL Token program → `high`, naming the program it resembles.
+- **False positive / negative:**
+  - **False positive:** Extremely unlikely at a 7-char prefix. A genuine accidental collision of 7 base58 characters is astronomically rare.
+  - **False negative:** A look-alike that matches fewer than 7 leading characters does not trip this rule (it will still surface as `UNKNOWN_PROGRAM`). Impersonation by *name* or *UI label* rather than *address prefix* is out of scope here.
+
+---
+
+### 4.20 `NONCE_AUTHORITY_CHANGE`: changes a nonce account authority
+
+- **Level:** `high`
+- **Trigger:** An instruction with parsed `program === "system"` and `parsedType === "authorizeNonce"`. One finding per occurrence.
+- **Rationale:** `AuthorizeNonceAccount` hands control of a durable-nonce account to a **new authority**. Combined with a durable-nonce transaction (§4.23), this enables delayed, attacker-controlled execution: a signed transaction held and submitted later, under a nonce the attacker now controls. Handing over the nonce authority is a lasting control change, which is why it is `high`.
+- **Evidence:** `New nonce authority <shortPubkey(newAuthority)>`.
+- **Example:** A transaction that reassigns a durable-nonce account's authority to an unfamiliar key → `high`.
+- **False positive / negative:**
+  - **False positive:** Legitimate custody and rotation flows do reassign nonce authorities. The level reflects blast radius, not proven intent.
+  - **False negative:** Only the parsed `authorizeNonce` type matches.
+
+---
+
+### 4.21 `TOKEN_BURN`: burns tokens (irreversible)
+
+- **Level:** `high`
+- **Trigger:** A token-program instruction with `parsedType === "burn"` **or** `parsedType === "burnChecked"`. One finding per occurrence.
+- **Rationale:** `Burn` permanently destroys tokens from a token account. This **cannot be undone**. Burning is sometimes intentional (deflationary mechanics, closing a position), but because the loss is irreversible, the action always deserves a deliberate confirmation of the mint and amount.
+- **Evidence:** `Burns from <shortPubkey(account)>`.
+- **Example:** An instruction that burns a balance out of a token account → `high`.
+- **False positive / negative:**
+  - **False positive:** Intentional burns look identical. High severity is intentional, since the result is irreversible either way.
+  - **False negative:** Only the parsed `burn` / `burnChecked` types match. A burn performed via an unparsed instruction layout would be missed.
+
+---
+
+### 4.22 `TOKEN_FREEZE`: freezes a token account
+
+- **Level:** `high`
+- **Trigger:** A token-program instruction with `parsedType === "freezeAccount"`. One finding per occurrence.
+- **Rationale:** `FreezeAccount` locks a token account so its **owner can no longer move funds** until a freeze authority thaws it. From the holder's side this is an irreversible loss of access (the holder cannot thaw their own account), which is why it is `high`.
+- **Evidence:** `Freezes <shortPubkey(account)>`.
+- **Example:** An instruction that freezes a token account the holder controls → `high`.
+- **False positive / negative:**
+  - **False positive:** Some compliant token designs legitimately freeze accounts. The level reflects the holder-side loss of access, not proven intent.
+  - **False negative:** Only the parsed `freezeAccount` type matches.
+
+---
+
+### 4.23 `DURABLE_NONCE_PRESENT`: uses a durable nonce (delayed execution)
+
+- **Level:** `low`
+- **Trigger:** Any instruction with parsed `program === "system"` and `parsedType === "advanceNonce"`. At most one finding.
+- **Rationale:** `AdvanceNonceAccount` makes the transaction valid **indefinitely** instead of for the usual ~2 minutes. A signed durable-nonce transaction can be held and submitted later, when conditions favor an attacker. This is a delayed-execution *timing property*, so it is informational on its own. Legitimate multisig and custody flows also use durable nonces. The real risk shows only when it is combined with a harmful action (an authority change or an approval), which raises the overall level separately. It is `low` so it adds context without blocking by itself.
+- **Evidence:** None beyond the title.
+- **Example:** A multisig transaction that advances a durable nonce → `low`, on its own.
+- **False positive / negative:**
+  - **False positive:** Common in legitimate multisig/custody. It is a `low` nudge to ask *why* a durable nonce is needed, especially alongside any authority change (§4.20) or approval (§4.10).
+  - **False negative:** Only the parsed `advanceNonce` type matches.
+
+---
+
 ## 5. Tests
 
-A deterministic regression suite ([`tests/heuristics.test.ts`](tests/heuristics.test.ts), run with `npm test` via `tsx`) locks down exactly the behaviors that are hard to verify against live RPC. It runs **10 assertions** across these scenarios, and all pass:
+A deterministic regression suite (run with `npm test` via `tsx`) locks down exactly the behaviors that are hard to verify against live RPC. It runs **54 checks** in total, all passing: **10** over the risk engine ([`tests/heuristics.test.ts`](tests/heuristics.test.ts)) and **44** over pure helpers and the circuit breaker ([`tests/lib.test.ts`](tests/lib.test.ts)).
+
+The 10 risk-engine checks cover these scenarios:
 
 1. **Sell via a DEX is a swap, not a drain.** A full position-sell through PumpSwap with SOL coming back asserts `TOKEN_SWAP` is present, `FULL_TOKEN_ACCOUNT_DRAIN` is **absent**, the overall level is **not** `high`, and the score is `< 25`.
 2. **A genuine drain stays HIGH.** A signer's token account emptied with **no** DEX and **no** value back asserts `FULL_TOKEN_ACCOUNT_DRAIN` is present, the level is `high`, and the score is `>= 45`.
@@ -425,7 +497,9 @@ A deterministic regression suite ([`tests/heuristics.test.ts`](tests/heuristics.
 4. **Wrapped SOL is excluded.** A signer's WSOL balance going to zero produces no `FULL_TOKEN_ACCOUNT_DRAIN` / `LARGE_TOKEN_OUTFLOW`.
 5. **The watchlist fires.** A transaction touching the burn/incinerator address produces `FLAGGED_ADDRESS`.
 
-These tests are the proof that de-saturation, the signer-owned restriction, WSOL exclusion, the swap-aware downgrade, and the watchlist all behave as documented here. `tsx` is a dev dependency, and the project is a git repository (baseline + enhancement commits).
+The 44 `tests/lib.test.ts` checks cover `rawToUi` (base-unit to UI conversion), `decodeIxType` (the pre-sign SPL Token / System / Compute Budget / ATA / Memo instruction decoder), the per-IP rate limiter, and the **circuit breaker** (§9): irreversible findings gate to `REQUIRE_HUMAN`, a reversible medium gates to `WARN`, a clean or low report is `ALLOW`, and malformed or unknown inputs fail closed.
+
+These tests are the proof that de-saturation, the signer-owned restriction, WSOL exclusion, the swap-aware downgrade, the watchlist, and the circuit breaker all behave as documented here. `tsx` is a dev dependency, and the project is a git repository (baseline + enhancement commits).
 
 The pre-sign simulation (§7) and token metadata enrichment need a live RPC and a network call, so they are **not** in the offline unit suite. I verified them by live integration against mainnet instead. The deterministic heuristics they feed are exactly the ones the `npm test` suite already covers, since both paths emit the same `ParsedTransaction`.
 
@@ -585,6 +659,26 @@ No other code changes are required. `resolveProgram()`, `isKnownProgram()`, and 
 ### Adding a watchlist entry
 
 The watchlist lives in [`src/lib/watchlist.ts`](src/lib/watchlist.ts). Add a `WatchEntry` to `FLAGGED_ADDRESSES` (wallets) or `FLAGGED_PROGRAMS` (program IDs) with an `address`, a `label`, a `category` (`drainer | scam | phishing | sanctioned | burn`), and a **citable `source`**. The matching is fully wired (`lookupWatch`), so no code change is needed. **Add entries only with a citable public source.** A false accusation is harmful, which is why `FLAGGED_PROGRAMS` ships empty.
+
+---
+
+## 9. Circuit breaker
+
+The heuristics produce **signals**. An autonomous agent still needs a single, deterministic decision on whether it may sign. The core package provides exactly that on top of `assessRisk()`:
+
+```
+decide(report: RiskReport, options?) -> { action: "ALLOW" | "WARN" | "REQUIRE_HUMAN", autoSignable, reasons, gatedBy, irreversible }
+```
+
+`decide()` is a pure function (no network, no keys, no side effects). Its load-bearing axis is **irreversibility (blast radius)**, keyed on an `IRREVERSIBLE_FINDINGS` set of finding ids:
+
+- **ALLOW** is the **only auto-signable tier.** It means no irreversible finding fired and the overall level is below `medium`. An agent may sign autonomously. Gate on `decision.autoSignable`, which is `true` only for `ALLOW`.
+- **WARN** means the transaction is flagged (medium overall) but nothing was classified as irreversible. It is **not** auto-signable. The agent must escalate for human or secondary review.
+- **REQUIRE_HUMAN** means an **irreversible or opaque** action is present (or the overall risk is `high`, or the report could not be parsed). A human must sign.
+
+The set that gates to `REQUIRE_HUMAN` (`IRREVERSIBLE_FINDINGS`) is: `SET_AUTHORITY`, `ACCOUNT_REASSIGN`, `TOKEN_DELEGATE_APPROVE`, `FULL_TOKEN_ACCOUNT_DRAIN`, `LARGE_TOKEN_OUTFLOW`, `LARGE_SOL_OUTFLOW`, `TOKEN_BURN`, `TOKEN_FREEZE`, `NONCE_AUTHORITY_CHANGE`, `PROGRAM_DEPLOY_OR_UPGRADE`, `PROGRAM_IMPERSONATION`, `FLAGGED_ADDRESS`, and `UNKNOWN_PROGRAM`. In plain terms: authority handovers, delegate approvals, value out, burn, freeze, owner reassignment, impersonation, and **opaque unknown programs** all require a human. `UNKNOWN_PROGRAM` is on the list on purpose, since every value-moving rule keys on a decoded instruction type, so a novel program that moves value through its own encoding produces no specific finding, and an autonomous signer must not auto-approve what it cannot inspect.
+
+The breaker **fails closed.** A malformed report, an unrecognized overall level, or any input it cannot reason about returns `REQUIRE_HUMAN`, never `ALLOW`. The thresholds are tunable through `options` (`requireHumanAtLevel`, `warnAtLevel`, `irreversibleFindings`), and invalid option levels are coerced toward the safe end rather than collapsing the breaker to `ALLOW`. Implementation: [`packages/core/src/policy.ts`](packages/core/src/policy.ts), `decide`, `IRREVERSIBLE_FINDINGS`, covered by the circuit-breaker checks in [`tests/lib.test.ts`](tests/lib.test.ts) (§5).
 
 ---
 

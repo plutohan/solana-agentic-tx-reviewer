@@ -34,7 +34,8 @@ Think of the reviewer as the review step an agent runs before it signs. An agent
   - **top-level and inner (CPI) instructions** flattened into one ordered list, each tagged with its program and parsed instruction type,
   - **SPL token balance changes** computed from `pre`/`postTokenBalances` (before, after, and delta per token account),
   - **aggregated program invocations** with friendly names and call counts.
-- **Deterministic risk report** ([`src/lib/heuristics.ts`](src/lib/heuristics.ts)). Pure, explainable rules (now **18** of them) that surface drains, authority changes, delegate approvals, unknown programs, large outflows, and more, each with a level, a human-readable detail, and supporting evidence.
+- **Deterministic risk report** ([`src/lib/heuristics.ts`](src/lib/heuristics.ts)). Pure, explainable rules (now **23** of them) that surface drains, authority and nonce-authority handovers, delegate approvals, token burns and freezes, unknown and lookalike programs, durable-nonce delayed execution, large outflows, and more, each with a level, a human-readable detail, and supporting evidence.
+- **Circuit breaker for agents** ([`packages/core/src/policy.ts`](packages/core/src/policy.ts)). `decide(report)` turns the findings into a signing decision, `ALLOW`, `WARN`, or `REQUIRE_HUMAN`, keyed on irreversibility. An autonomous agent gates on it: only `ALLOW` is auto-signable, and anything with irreversible blast radius (authority handovers, approvals, value out, burn, freeze, owner reassignment, impersonation, or an opaque unknown program) requires a human signature.
 - **Swap-aware, signer-scoped heuristics.** Drain/outflow rules fire **only on signer-owned token accounts** (pool/vault PDAs that routinely zero out during swaps are ignored), wrapped SOL is excluded from token rules, and a `TOKEN_SWAP` rule defensively relabels a would-be drain when the **same signer received value back through a known DEX**. This kills the biggest false positive (a routine Jupiter swap previously read HIGH).
 - **Known-address watchlist** ([`src/lib/watchlist.ts`](src/lib/watchlist.ts)). A curated, best-effort, non-exhaustive list that raises a `FLAGGED_ADDRESS` finding (seeded honestly with the SOL burn/incinerator address; flagged program IDs are empty by default to avoid false accusations).
 - **De-saturated scoring.** `assessRisk` dedups same-id findings and applies **diminishing returns** per level so a routine swap reads LOW while a real, stacked drainer stays HIGH.
@@ -69,7 +70,7 @@ The pipeline is a single linear flow with two front doors. The client posts eith
          │               │   ① enrich ─► lib/metadata.ts  token symbol/logo     │
          │               │        ▼                                             │
          │               │   ② risk  ──► lib/heuristics.ts  RiskReport          │
-         │               │        │      (18 rules → deduped, de-saturated)     │
+         │               │        │      (23 rules → deduped, de-saturated)     │
          │               │        ▼                                             │
          │               │   ③ explain ► lib/ai.ts        AiExplanation         │
          │               │        │      (placeholder OR real Anthropic/OpenAI) │
@@ -251,7 +252,7 @@ solana-agentic-tx-reviewer/
 │     ├─ parse.ts              # parseTransaction → ParsedTransaction (confirmed path)
 │     ├─ presign.ts            # simulateAndReview → ParsedTransaction (pre-sign path)
 │     ├─ metadata.ts           # enrichTokenMetadata → mint symbol/name/logo
-│     ├─ heuristics.ts         # assessRisk → RiskReport (18 rules)
+│     ├─ heuristics.ts         # assessRisk → RiskReport (23 rules)
 │     ├─ ai.ts                 # explainTransaction + buildPrompt (real LLM or placeholder)
 │     └─ review.ts             # reviewTransaction orchestrator + ReviewError
 ├─ tests/
@@ -267,7 +268,7 @@ solana-agentic-tx-reviewer/
 
 ## Risk heuristics
 
-`assessRisk(tx)` runs a fixed set of **18** pure rules over the parsed transaction. They run identically on a confirmed transaction and on a simulated unsigned one, because both arrive as the same `ParsedTransaction`. Each rule emits zero or more **findings**. The report dedups same-id findings (merging evidence, tagging `×N`) and aggregates them.
+`assessRisk(tx)` runs a fixed set of **23** pure rules over the parsed transaction. They run identically on a confirmed transaction and on a simulated unsigned one, because both arrive as the same `ParsedTransaction`. Each rule emits zero or more **findings**. The report dedups same-id findings (merging evidence, tagging `×N`) and aggregates them.
 
 **Scoring & level**
 
@@ -345,7 +346,7 @@ The prompt is grounded entirely in deterministically parsed on-chain facts, so t
 
 ## Roadmap
 
-Most of the big work is shipped, not planned. Pre-sign simulation, token metadata enrichment, the real dual-provider LLM, the public Vercel deploy, the premium UI, the sample generator, and the 24-check test suite are all done and described above. What is left is smaller. Estimates are in days at agent pace.
+Most of the big work is shipped, not planned. Pre-sign simulation, token metadata enrichment, the real dual-provider LLM, the public Vercel deploy, the premium UI, the sample generator, and the 54-check test suite are all done and described above. What is left is smaller. Estimates are in days at agent pace.
 
 - **A public review API and SDK for wallets and agents (1 to 2 days).** The most strategic next step. `POST /api/review` already returns a structured `ReviewResult`, so the work is to productize it: a versioned, rate-limited public API, a small npm SDK (`review(signature)` / `review({ rawTransaction })`), and a reference wallet/extension hook that shows the pre-sign verdict before a user approves. This is what makes the reviewer the check other software calls before it signs.
 - **Fund the Anthropic account (trivial).** The integration is already wired and deployed. Adding credits flips Claude explanations on in production. No code change.

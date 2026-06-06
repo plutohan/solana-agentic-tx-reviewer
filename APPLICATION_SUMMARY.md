@@ -42,7 +42,7 @@ A complete, deployed Next.js 16 (App Router) app. It is **read-only**. It never 
 
 **A premium UI redesign, the "forensic instrument" direction.** This does not look like a default Next template. Distinctive type (Bricolage Grotesque and JetBrains Mono via `next/font`, not system fonts), a single cyan accent, and an atmospheric background (dot grid, soft glow, grain). The hero of the risk report is a radial **risk gauge** (`src/components/RiskGauge.tsx`), a 0-to-100 arc colored by level. A reticle wordmark, segmented input tabs, and staggered card entrance motion finish it, and the motion is reduced-motion aware.
 
-**Tuned, signer-scoped, swap-aware heuristics (18 rules, up from 16).** I hardened the engine in `heuristics.ts` against the false positives that plague naive scanners.
+**Tuned, signer-scoped, swap-aware heuristics (23 rules).** I hardened the engine in `heuristics.ts` against the false positives that plague naive scanners.
 
 - **Signer-scoped drains.** `FULL_TOKEN_ACCOUNT_DRAIN` and `LARGE_TOKEN_OUTFLOW` fire **only on signer-owned token accounts**. Pool and vault accounts (owned by program PDAs) routinely zero out during a swap, so we ignore them. That was the single biggest source of false alarms.
 - **Wrapped SOL excluded.** `So111...112` (WSOL) is transient by design. The native-SOL rules already cover it, so it no longer trips token-drain logic.
@@ -70,7 +70,7 @@ The pre-sign path is real, but it is not magic, and I want to be precise about i
 
 ## 7. Roadmap: what's next
 
-The MVP already shipped. Pre-sign simulation, token metadata, the real LLM integration, the public Vercel deploy, the premium UI, the sample generator, and the 24-check test suite are all done. The remaining roadmap is smaller, and estimates are in days at agent pace.
+The MVP already shipped. Pre-sign simulation, token metadata, the real LLM integration, the public Vercel deploy, the premium UI, the sample generator, and the 54-check test suite are all done. The remaining roadmap is smaller, and estimates are in days at agent pace.
 
 - **A public review API and SDK so other wallets and agents can use it.** This is the most strategic next step. `POST /api/review` already returns a structured `ReviewResult`, so the work is to productize it into a versioned, rate-limited public API, a small npm SDK, and a reference wallet hook, so any wallet or agent can request a pre-sign risk verdict in one call. This is what turns the project from an app into infrastructure for the agent loop. (1 to 2 days.)
 - **Turn Claude explanations on in production.** Fund the Anthropic account. The integration is already wired and deployed, so this is the trivial step. (Hours.)

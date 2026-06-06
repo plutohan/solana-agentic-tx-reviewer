@@ -2,7 +2,7 @@
 
 **Project:** Solana Agentic Transaction Reviewer
 **Grant:** Superteam Agentic Engineering micro-grant (~200 USDG, Solana Earn)
-**Status:** Publicly deployed and live. Pre-sign simulation, token metadata, a real dual-provider LLM seam, a premium UI, a sample generator, and a 24-check test suite are all shipped. See [Current Status](#1-current-status-what-is-done-today).
+**Status:** Publicly deployed and live. Pre-sign simulation, token metadata, a real dual-provider LLM seam, a premium UI, a sample generator, and a 54-check test suite are all shipped. See [Current Status](#1-current-status-what-is-done-today).
 **Live:** https://solana-agentic-tx-reviewer.vercel.app
 **Scope discipline:** read-only analysis only. No new protocol. No signing or sending of transactions.
 
@@ -55,7 +55,7 @@ The home page, confirmed-signature review, the pre-sign simulation path, the `/t
 - **Deterministic extraction** (`src/lib/parse.ts`): `parseTransaction(raw, signature, cluster)` normalizes the raw RPC response into the `ParsedTransaction` model. It computes per-account SOL deltas (post minus pre balances), SPL token balance changes (from `pre`/`postTokenBalances`, including each account's `owner`), flattens top-level AND inner (CPI) instructions into one list, and aggregates `programsInvoked` with counts. Everything downstream reads only this normalized shape. The pre-sign path builds the same shape from simulation output.
 - **Shared data model / contract** (`src/lib/types.ts`): `ReviewRequest`, `AccountSummary`, `InstructionSummary`, `TokenBalanceChange`, `ProgramInvocation`, `ParsedTransaction`, `RiskLevel`, `RiskFinding`, `RiskReport`, `AiExplanation`, and `ReviewResult`. The UI, the API, the permalink, the risk engine, and the LLM all speak this one contract. `ReviewRequest` accepts `signature` OR `rawTransaction` (exactly one). The fields that backed the pre-sign and metadata work: `ReviewRequest.rawTransaction`, `ParsedTransaction.simulated`, and `TokenBalanceChange.symbol` / `name` / `logoURI`.
 - **Program registry** (`src/lib/programs.ts`): a curated map of well-known program IDs to `{ name, category }`, covering System, SPL Token, SPL Token-2022, Associated Token Account, Compute Budget, Memo (v1 + current), BPF loaders, Stake, Vote, Metaplex Token Metadata, AND a research-confirmed DeFi set: Jupiter Aggregator v6 AND v4, Raydium AMM v4 / CLMM / CPMM, Orca Whirlpools, pump.fun (bonding curve) + pump.fun Fee, PumpSwap AMM, Meteora DLMM + DAMM v2, Phoenix, Lifinity v2, and Jito Tip Payment. Exposes `resolveProgram()`, `isKnownProgram()`, the `WSOL_MINT` constant, a `DEX_PROGRAM_IDS` set, and `isDexProgram()`.
-- **Deterministic risk engine** (`src/lib/heuristics.ts`): **18** pure-function rules that emit explainable `RiskFinding`s with evidence (`TOKEN_SWAP` and `FLAGGED_ADDRESS` included). Score and level aggregation are deterministic (details in the [scoring](#risk-scoring-as-implemented-in-srclibheuristicsts) section and rules table below). These are explicitly **signals, not a verdict**. The major tuning that shipped:
+- **Deterministic risk engine** (`src/lib/heuristics.ts`): **23** pure-function rules that emit explainable `RiskFinding`s with evidence (`TOKEN_SWAP` and `FLAGGED_ADDRESS` included). Score and level aggregation are deterministic (details in the [scoring](#risk-scoring-as-implemented-in-srclibheuristicsts) section and rules table below). These are explicitly **signals, not a verdict**. The major tuning that shipped:
   - **Signer-scoped drain/outflow.** `FULL_TOKEN_ACCOUNT_DRAIN` and `LARGE_TOKEN_OUTFLOW` only fire on token accounts owned by a signer. Pool/vault accounts (owned by program PDAs) routinely zero out during a swap, so they are ignored. That killed the biggest false positive, where a routine Jupiter/PumpSwap swap read HIGH "fully drained" off a *pool* account.
   - **Wrapped SOL excluded.** WSOL (`So111…112`) is skipped by the token drain/outflow rules. It is transient (wrap/unwrap), and the native-SOL rules already cover it.
   - **`TOKEN_SWAP` (low).** Defensively relabels a would-be full-drain or large-outflow when the *same signer* received non-dust value back (a different-mint token inflow `> 1` base unit, or net SOL `> 0.001`) AND a known DEX program is present. That is consistent with a swap or position exit, not a drain. An undefined owner or a dusted fake inflow fails safe to the higher-risk drain finding.
@@ -130,7 +130,7 @@ The broader Solana dev toolchain on the machine is also current (Rust 1.96.0, Ag
 
 ## 2. Roadmap (next milestones)
 
-The headline work is shipped and lives in [section 1](#1-current-status-what-is-done-today): pre-sign simulation, token metadata, the real dual-provider LLM seam, the public Vercel deploy, the premium UI, the sample generator, and the 24-check suite. What follows is the remaining work. Estimates reflect the agent-assisted pace this project was actually built at, so they are in days. Each milestone ships independently and builds on the existing contract in `src/lib/types.ts`.
+The headline work is shipped and lives in [section 1](#1-current-status-what-is-done-today): pre-sign simulation, token metadata, the real dual-provider LLM seam, the public Vercel deploy, the premium UI, the sample generator, and the 54-check suite. What follows is the remaining work. Estimates reflect the agent-assisted pace this project was actually built at, so they are in days. Each milestone ships independently and builds on the existing contract in `src/lib/types.ts`.
 
 ### N1: A public review API and SDK, so other wallets and agents can use it (core shipped)
 
@@ -219,13 +219,13 @@ The deadline is June 11, 2026 (Asia/Dubai). A micro-grant funds a focused increm
 
 ### Primary KPI
 
-A routine DEX swap reviews LOW (score < 25) and a genuine drainer reviews HIGH (score ≥ 45), deterministically, with explainable evidence, and an agent or user can run that same review on an *unsigned* transaction before approving it. This single false-positive-versus-true-positive separation, extended to the pre-sign moment, is the headline outcome the grant is judged on. It is proven post-hoc by `npm test` (24/24), and proven pre-sign by a live mainnet integration where an unsigned transfer to the burn address surfaced the SOL deltas and fired the watchlist rule before signing. It is also live to try at https://solana-agentic-tx-reviewer.vercel.app.
+A routine DEX swap reviews LOW (score < 25) and a genuine drainer reviews HIGH (score ≥ 45), deterministically, with explainable evidence, and an agent or user can run that same review on an *unsigned* transaction before approving it. This single false-positive-versus-true-positive separation, extended to the pre-sign moment, is the headline outcome the grant is judged on. It is proven post-hoc by `npm test` (54/54), and proven pre-sign by a live mainnet integration where an unsigned transfer to the burn address surfaced the SOL deltas and fired the watchlist rule before signing. It is also live to try at https://solana-agentic-tx-reviewer.vercel.app.
 
 ### Timeline (days)
 
 | When | Focus | Milestone |
 | --- | --- | --- |
-| Done | Working reviewer, pre-sign simulation, token metadata, real LLM seam, tuned 18-rule engine, watchlist, permalink + OG card, sample generator, premium UI, 24-check tests, public git, and a **live Vercel deploy** | **Shipped** |
+| Done | Working reviewer, pre-sign simulation, token metadata, real LLM seam, tuned 23-rule engine, watchlist, permalink + OG card, sample generator, premium UI, 54-check tests, public git, and a **live Vercel deploy** | **Shipped** |
 | Day 1 to 2 | A public review API and SDK so other wallets and agents can call it | **N1 (headline, funded)** |
 | Day 2 | Fund Anthropic to turn Claude on, then deepen and guard the LLM layer | **N2 (within grant)** |
 | Day 3 | Richer program/IDL labeling and a CPI tree view | **N3 (stretch / post-grant)** |
