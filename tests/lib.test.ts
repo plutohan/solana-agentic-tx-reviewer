@@ -52,6 +52,7 @@ const sys = (n: number) => {
 check("system 0 -> createAccount (system)", sys(0).parsedType === "createAccount" && sys(0).program === "system");
 check("system 1 -> assign", sys(1).parsedType === "assign");
 check("system 2 -> transfer", sys(2).parsedType === "transfer");
+check("system 4 -> advanceNonce", sys(4).parsedType === "advanceNonce");
 
 // decodeIxType: Compute Budget, Associated Token Account, Memo (richer pre-sign labeling).
 const COMPUTE_BUDGET = "ComputeBudget111111111111111111111111111111";

@@ -191,6 +191,19 @@ export const FIXTURES: Fixture[] = [
     instructions: [ix(SYSTEM, { program: "system", parsedType: "assignWithSeed", info: { owner: ATTACKER } })],
     note: "owner reassignment via assignWithSeed (the variant the old rule missed) -> ACCOUNT_REASSIGN",
   }),
+  mk("unlimited-delegate-approval", "risky", true, {
+    accounts: [signer()],
+    instructions: [ix(TOKEN, { program: "spl-token", parsedType: "approve", info: { delegate: ATTACKER, amount: "18446744073709551615" } })],
+    note: "approve for u64-max (unlimited) -> TOKEN_DELEGATE_APPROVE escalated to high",
+  }),
+  mk("durable-nonce", "risky", true, {
+    accounts: [signer()],
+    instructions: [
+      ix(SYSTEM, { program: "system", parsedType: "advanceNonce" }),
+      ix(SYSTEM, { program: "system", parsedType: "transfer" }),
+    ],
+    note: "AdvanceNonceAccount makes the tx valid indefinitely -> DURABLE_NONCE_PRESENT (delayed-execution risk)",
+  }),
 
   // ---- honest probes (these are WHY precision/recall is not 100%) ----
   mk("legit-unknown-program", "benign", true, {

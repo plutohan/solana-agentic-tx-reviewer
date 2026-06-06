@@ -240,9 +240,9 @@ function checkAuthorityChanges(tx: ParsedTransaction): RiskFinding[] {
       findings.push({
         id: "ACCOUNT_REASSIGN",
         title: "Reassigns account ownership (System Assign)",
-        level: "medium",
+        level: "high",
         detail:
-          "A System Assign changes which program owns an account. Verify this is expected for the operation you intended.",
+          "A System Assign changes which program owns an account. Reassigning the owner of your own account to an attacker program is a top wallet-drain vector, and it often shows no balance change in a simulation. Verify this is expected.",
         evidence: [`Assigns to owner ${shortPubkey(str(ix.info?.owner))}`],
       });
     }
@@ -260,13 +260,22 @@ function checkDelegations(tx: ParsedTransaction): RiskFinding[] {
         str(ix.info?.amount) ||
         str((ix.info?.tokenAmount as Record<string, unknown> | undefined)?.amount) ||
         "an amount";
+      const unlimited = amount === "18446744073709551615"; // u64 max
       findings.push({
         id: "TOKEN_DELEGATE_APPROVE",
-        title: "Approves a token delegate",
-        level: "medium",
+        title: unlimited
+          ? "Approves an UNLIMITED token delegate"
+          : "Approves a token delegate",
+        level: unlimited ? "high" : "medium",
         detail:
-          "An Approve grants another address the right to move tokens from this account. Malicious dApps abuse delegate approvals to drain tokens later. Confirm the delegate and amount.",
-        evidence: [`Delegate ${shortPubkey(delegate)} approved for ${amount}`],
+          "An Approve grants another address the right to move tokens from this account" +
+          (unlimited
+            ? " for an unlimited amount (u64 max), a hallmark of drainer approvals."
+            : ". Malicious dApps abuse delegate approvals to drain tokens later.") +
+          " Confirm the delegate and amount.",
+        evidence: [
+          `Delegate ${shortPubkey(delegate)} approved for ${unlimited ? "an UNLIMITED amount (u64 max)" : amount}`,
+        ],
       });
     }
   }
@@ -411,6 +420,20 @@ function checkMemo(tx: ParsedTransaction): RiskFinding | null {
   };
 }
 
+function checkDurableNonce(tx: ParsedTransaction): RiskFinding | null {
+  const has = tx.instructions.some(
+    (ix) => ix.program === "system" && ix.parsedType === "advanceNonce",
+  );
+  if (!has) return null;
+  return {
+    id: "DURABLE_NONCE_PRESENT",
+    title: "Uses a durable nonce (delayed execution)",
+    level: "medium",
+    detail:
+      "An AdvanceNonceAccount makes this transaction valid indefinitely instead of for the usual ~2 minutes. A signed durable-nonce transaction can be held and submitted later, when conditions favor an attacker. Verify why a durable nonce is needed.",
+  };
+}
+
 const RULES: Array<(tx: ParsedTransaction) => RiskFinding | RiskFinding[] | null> =
   [
     checkFailed,
@@ -429,6 +452,7 @@ const RULES: Array<(tx: ParsedTransaction) => RiskFinding | RiskFinding[] | null
     checkMultipleSigners,
     checkComputeBudget,
     checkMemo,
+    checkDurableNonce,
   ];
 
 // ---------------------------------------------------------------------------
