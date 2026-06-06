@@ -176,6 +176,21 @@ export const FIXTURES: Fixture[] = [
     tokenBalanceChanges: [tok(SIGNER, USDC, 6, 1000_000000, 0)],
     note: "multi-step approve + setAuthority + full drain",
   }),
+  mk("token-burn", "risky", true, {
+    accounts: [signer()],
+    instructions: [ix(TOKEN, { program: "spl-token", parsedType: "burn", info: { account: "SigAta", amount: "1000000000" } })],
+    note: "burns tokens permanently -> TOKEN_BURN (high, irreversible)",
+  }),
+  mk("token-freeze", "risky", true, {
+    accounts: [signer()],
+    instructions: [ix(TOKEN, { program: "spl-token", parsedType: "freezeAccount", info: { account: "SigAta" } })],
+    note: "freezes a token account -> TOKEN_FREEZE (high, irreversible)",
+  }),
+  mk("owner-reassign-with-seed", "risky", true, {
+    accounts: [signer()],
+    instructions: [ix(SYSTEM, { program: "system", parsedType: "assignWithSeed", info: { owner: ATTACKER } })],
+    note: "owner reassignment via assignWithSeed (the variant the old rule missed) -> ACCOUNT_REASSIGN",
+  }),
 
   // ---- honest probes (these are WHY precision/recall is not 100%) ----
   mk("legit-unknown-program", "benign", true, {

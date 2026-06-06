@@ -233,7 +233,10 @@ function checkAuthorityChanges(tx: ParsedTransaction): RiskFinding[] {
         evidence: [`Sets ${authType} to ${shortPubkey(newAuth)}`],
       });
     }
-    if (ix.program === "system" && ix.parsedType === "assign") {
+    if (
+      ix.program === "system" &&
+      (ix.parsedType === "assign" || ix.parsedType === "assignWithSeed")
+    ) {
       findings.push({
         id: "ACCOUNT_REASSIGN",
         title: "Reassigns account ownership (System Assign)",
@@ -283,6 +286,34 @@ function checkCloseAccounts(tx: ParsedTransaction): RiskFinding[] {
         evidence: [
           `Closes ${shortPubkey(str(ix.info?.account))} → ${shortPubkey(str(ix.info?.destination))}`,
         ],
+      });
+    }
+  }
+  return findings;
+}
+
+function checkDestructiveTokenOps(tx: ParsedTransaction): RiskFinding[] {
+  const findings: RiskFinding[] = [];
+  for (const ix of tx.instructions) {
+    if (!isToken(ix)) continue;
+    if (ix.parsedType === "burn" || ix.parsedType === "burnChecked") {
+      findings.push({
+        id: "TOKEN_BURN",
+        title: "Burns tokens (irreversible)",
+        level: "high",
+        detail:
+          "A Burn permanently destroys tokens from a token account. This cannot be undone. Confirm the mint and amount are intended.",
+        evidence: [`Burns from ${shortPubkey(str(ix.info?.account))}`],
+      });
+    }
+    if (ix.parsedType === "freezeAccount") {
+      findings.push({
+        id: "TOKEN_FREEZE",
+        title: "Freezes a token account",
+        level: "high",
+        detail:
+          "A FreezeAccount locks a token account so its owner can no longer move funds until a freeze authority thaws it. From the holder's side this is an irreversible loss of access.",
+        evidence: [`Freezes ${shortPubkey(str(ix.info?.account))}`],
       });
     }
   }
@@ -390,6 +421,7 @@ const RULES: Array<(tx: ParsedTransaction) => RiskFinding | RiskFinding[] | null
     checkAuthorityChanges,
     checkDelegations,
     checkCloseAccounts,
+    checkDestructiveTokenOps,
     checkProgramDeploy,
     checkManyWritable,
     checkHighFee,

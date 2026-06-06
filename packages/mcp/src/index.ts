@@ -97,7 +97,8 @@ server.setRequestHandler(CallToolRequestSchema, async (req) => {
       const explanation = data.explanation as Record<string, unknown> | undefined;
       const out = {
         risk: data.risk,
-        decision: data.risk ? decide(data.risk as RiskReport) : undefined,
+        // decide() fails closed on a missing/malformed report (-> REQUIRE_HUMAN).
+        decision: decide(data.risk as RiskReport),
         summary: explanation?.summary,
         success: tx?.success,
         simulated: tx?.simulated ?? false,
