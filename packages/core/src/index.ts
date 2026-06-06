@@ -16,3 +16,4 @@ export * from "./programs.js";
 export * from "./watchlist.js";
 export * from "./decode.js";
 export * from "./heuristics.js";
+export * from "./policy.js";

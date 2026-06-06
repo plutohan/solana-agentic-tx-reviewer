@@ -10,6 +10,8 @@ import {
   SYSTEM_PROGRAM_ID,
 } from "../src/lib/programs";
 import { checkRateLimit } from "../src/lib/ratelimit";
+import { decide } from "@solana-tx-reviewer/core";
+import type { RiskReport, RiskFinding } from "@solana-tx-reviewer/core";
 
 let pass = 0;
 let fail = 0;
@@ -84,6 +86,17 @@ check("ratelimit second call remaining 1", checkRateLimit("rl-a", 3, 60_000).rem
 check("ratelimit third call remaining 0", checkRateLimit("rl-a", 3, 60_000).remaining === 0);
 check("ratelimit fourth call blocked", checkRateLimit("rl-a", 3, 60_000).ok === false);
 check("ratelimit other key is independent", checkRateLimit("rl-b", 3, 60_000).ok === true);
+
+// circuit breaker: decide() keys on irreversibility, not just the score.
+const mkReport = (level: RiskReport["level"], findings: RiskFinding[]): RiskReport => ({ score: 0, level, findings, summary: "test" });
+const f = (id: string, level: RiskFinding["level"]): RiskFinding => ({ id, level, title: id, detail: "" });
+check("decide: setAuthority (irreversible) -> REQUIRE_HUMAN", decide(mkReport("high", [f("SET_AUTHORITY", "high")])).action === "REQUIRE_HUMAN");
+check("decide: delegate approve (medium but irreversible) -> REQUIRE_HUMAN", decide(mkReport("medium", [f("TOKEN_DELEGATE_APPROVE", "medium")])).action === "REQUIRE_HUMAN");
+check("decide: unknown program (medium, reversible) -> WARN", decide(mkReport("medium", [f("UNKNOWN_PROGRAM", "medium")])).action === "WARN");
+check("decide: token swap (low) -> ALLOW", decide(mkReport("low", [f("TOKEN_SWAP", "low")])).action === "ALLOW");
+check("decide: no findings -> ALLOW", decide(mkReport("info", [])).action === "ALLOW");
+check("decide: high non-irreversible -> REQUIRE_HUMAN", decide(mkReport("high", [f("MANY_WRITABLE_ACCOUNTS", "high")])).action === "REQUIRE_HUMAN");
+check("decide: surfaces the irreversible findings", decide(mkReport("high", [f("FULL_TOKEN_ACCOUNT_DRAIN", "high")])).irreversible.length === 1);
 
 console.log(`\n${pass} passed, ${fail} failed`);
 if (fail > 0) process.exit(1);

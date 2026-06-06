@@ -22,8 +22,20 @@ const report = assessRisk(parsedTx); // parsedTx: ParsedTransaction
 if (report.level === "high") block(report.findings);
 ```
 
+### Circuit breaker
+
+Turn the report into a signing decision for an agent. The key axis is irreversibility: routine activity passes, but anything with irreversible blast radius (authority handovers, delegate approvals, value out, owner reassignment) gates to a human signature.
+
+```ts
+import { assessRisk, decide } from "@solana-tx-reviewer/core";
+
+const { action } = decide(assessRisk(parsedTx)); // "ALLOW" | "WARN" | "REQUIRE_HUMAN"
+if (action !== "ALLOW") escalateToHuman();        // circuit breaker, not vibes
+```
+
 ## What's in it
 - `assessRisk(tx)` — the deterministic 18-rule risk engine (signer-scoped drain detection, swap-aware relabeling, wrapped-SOL handling, de-saturated scoring), plus `LEVEL_WEIGHT` and `THRESHOLDS`.
+- `decide(report, options?)` — the circuit breaker: `ALLOW` / `WARN` / `REQUIRE_HUMAN`, keyed on irreversibility (`IRREVERSIBLE_FINDINGS`). Pure, configurable.
 - `resolveProgram` / `isKnownProgram` / `isDexProgram` / `DEX_PROGRAM_IDS` — the program registry.
 - `decodeIxType(programId, data)` — a pure instruction-discriminator decoder (SPL Token, System, Compute Budget, Associated Token Account, Memo) over any `Uint8Array`.
 - `lookupWatch` + the curated, best-effort `FLAGGED_ADDRESSES` watchlist.

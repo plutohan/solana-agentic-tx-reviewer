@@ -18,7 +18,12 @@ import {
   CallToolRequestSchema,
   ListToolsRequestSchema,
 } from "@modelcontextprotocol/sdk/types.js";
-import { assessRisk, type ParsedTransaction } from "@solana-tx-reviewer/core";
+import {
+  assessRisk,
+  decide,
+  type ParsedTransaction,
+  type RiskReport,
+} from "@solana-tx-reviewer/core";
 
 const BASE_URL =
   process.env.REVIEWER_API_URL ?? "https://solana-agentic-tx-reviewer.vercel.app";
@@ -27,7 +32,7 @@ const TOOLS = [
   {
     name: "review_transaction",
     description:
-      "Review a Solana transaction before or after signing. Provide a confirmed `signature` OR an unsigned base64 `rawTransaction`. Returns a deterministic risk level (info/low/medium/high), a 0-100 score, the findings, and a plain-English summary. Read-only; never signs or sends.",
+      "Review a Solana transaction before or after signing. Provide a confirmed `signature` OR an unsigned base64 `rawTransaction`. Returns a deterministic risk level (info/low/medium/high), a 0-100 score, the findings, a plain-English summary, and a circuit-breaker `decision` (ALLOW / WARN / REQUIRE_HUMAN) keyed on irreversibility. Gate on it: do not auto-sign unless decision.action is ALLOW. Read-only; never signs or sends.",
     inputSchema: {
       type: "object",
       properties: {
@@ -40,7 +45,7 @@ const TOOLS = [
   {
     name: "assess_parsed_transaction",
     description:
-      "Run the deterministic risk engine LOCALLY (no network) on an already-normalized ParsedTransaction. Returns the RiskReport (score, level, findings). Use when you already hold the parsed transaction shape.",
+      "Run the deterministic risk engine LOCALLY (no network) on an already-normalized ParsedTransaction. Returns the RiskReport (score, level, findings) plus a circuit-breaker `decision` (ALLOW / WARN / REQUIRE_HUMAN). Use when you already hold the parsed transaction shape.",
     inputSchema: {
       type: "object",
       properties: {
@@ -68,7 +73,8 @@ server.setRequestHandler(CallToolRequestSchema, async (req) => {
         throw new Error("Provide `transaction` (a ParsedTransaction object).");
       }
       const report = assessRisk(tx);
-      return { content: [{ type: "text", text: JSON.stringify(report, null, 2) }] };
+      const decision = decide(report);
+      return { content: [{ type: "text", text: JSON.stringify({ ...report, decision }, null, 2) }] };
     }
 
     if (name === "review_transaction") {
@@ -91,6 +97,7 @@ server.setRequestHandler(CallToolRequestSchema, async (req) => {
       const explanation = data.explanation as Record<string, unknown> | undefined;
       const out = {
         risk: data.risk,
+        decision: data.risk ? decide(data.risk as RiskReport) : undefined,
         summary: explanation?.summary,
         success: tx?.success,
         simulated: tx?.simulated ?? false,
