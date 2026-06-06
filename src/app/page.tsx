@@ -102,6 +102,12 @@ export default function Home() {
           review <span className="text-zinc-200">before you sign</span>. Nothing is
           ever signed or sent.
         </p>
+        <a
+          href="/incidents"
+          className="mt-3 inline-block text-xs text-accent/80 transition hover:text-accent"
+        >
+          See it run on real drains: SlowMist, PYTH poisoning, Drift →
+        </a>
       </header>
 
       <form
