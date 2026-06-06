@@ -7,6 +7,10 @@
 /sdk/dist
 /sdk/node_modules
 
+# workspace package build output
+/packages/*/dist
+/packages/*/node_modules
+
 # next.js
 /.next/
 /out/
@@ -41,3 +45,8 @@ grant-submission/
 grant-submission.zip
 
 FORM-FIELDS.txt
+
+# internal candid strategy notes (not for the public grant repo)
+STRATEGY-REVIEW.md
+STRATEGY-PLAN.md
+STRATEGY-ALERT.md
