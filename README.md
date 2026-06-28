@@ -1,22 +1,24 @@
 # Solana Agentic Transaction Reviewer
 
-**Live demo: https://solana-agentic-tx-reviewer.vercel.app**
+### A deterministic pre-execution policy engine and human-in-the-loop circuit breaker for agentic transaction signing on Solana
 
-A small, AI-assisted, **read-only** tool for understanding Solana transactions. You give it a transaction (a confirmed signature, or an unsigned transaction you have not signed yet). The app fetches or simulates it over Solana RPC, pulls out the metadata, accounts, instructions (including inner/CPI calls), and token balance changes, runs a set of deterministic risk heuristics, and writes a plain-English explanation next to a structured risk report.
+**Live demo: https://solana-agentic-tx-reviewer.vercel.app** · library, MCP server, versioned HTTP API, and a public FP/FN benchmark
+
+This is the control that runs between *proposed* and *signed*. An agent, a wallet, or a human hands it a Solana transaction; it returns a structured risk report and one signing decision: `ALLOW`, `WARN`, or `REQUIRE_HUMAN`. The decision is deterministic and auditable, there is no model in the decision path, it fails closed on anything irreversible, and it is wired so an LLM can only make it *more* cautious, never less. The same engine ships four ways: a TypeScript library ([`@solana-tx-reviewer/core`](packages/core)), an [MCP server](packages/mcp) an agent can call as a tool, a versioned HTTP API, and a live web app, with a public false-positive / false-negative [benchmark](benchmark) measured against real, documented incidents.
+
+It is **read-only** by design. You give it a confirmed signature or an unsigned transaction you have not signed yet; it fetches or simulates it over Solana RPC, decodes the accounts, instructions (including inner/CPI calls), and token balance changes, runs a set of deterministic risk heuristics, and writes a plain-English explanation next to the structured risk report. There is no new on-chain protocol, no signing, and no persistence. It holds no keys, never constructs or submits transactions, and never asks for a wallet connection.
 
 It is deployed and live. The home page, confirmed-signature review, the pre-sign simulation path, the `/tx/<sig>` permalink, and the dynamic OpenGraph risk card all run in production on Vercel (Next.js 16, server-side Helius RPC).
-
-I built it for Solana users and developers who want to **sanity-check a transaction before or after signing**. It catches wallet drains, surprise delegate approvals, authority handovers, and calls into programs nobody recognizes, and it helps you debug what a transaction actually did.
 
 > **Read-only. Nothing is ever signed or sent.** This tool only reads a transaction that already exists on-chain, or *simulates* an unsigned one. It holds no keys, never constructs or submits transactions, and never asks for a wallet connection. The only thing it can do is *read*, *simulate*, and *explain*.
 
 > **Built with agents.** I scaffolded, documented, and adversarially reviewed this project with a multi-agent workflow. Agents brought the toolchain current (Node 24, Rust 1.96, Agave 4.0.1, Anchor 1.0.2). A research-agent discovery pass confirmed the program IDs. The heuristics were de-risked agent-by-agent against routine swaps and real drains.
 
-This is a deliberately small proof-of-concept built for the **Superteam Agentic Engineering micro-grant** (~200 USDG, Solana Earn). There is no new on-chain protocol, no signing, and no persistence. It is just an explainable analysis pipeline that a real agent could plug into.
+### Why this matters: agent controls for autonomous signing
 
-### Why this matters for Solana's agentic future
+As autonomous agents start moving value on Solana, the missing piece is a deterministic, auditable control *between* the transaction an agent proposes and the signature that makes it real. That is what this is: a pre-execution risk gate plus a human-in-the-loop circuit breaker. The agent proposes, the engine judges (**parse, heuristics, decide**), and only `ALLOW` is auto-signable; anything with irreversible blast radius (authority handovers, unlimited approvals, value out, burn, freeze, owner reassignment, program impersonation, or an opaque unknown program) escalates to `REQUIRE_HUMAN`. The verdicts are measured, not asserted: the public benchmark reports what the engine catches on real drains and, just as deliberately, what it honestly does not (the write-up [SIMULATION-IS-NOT-ENOUGH](SIMULATION-IS-NOT-ENOUGH.md) walks through four real incidents, including the ~$285M Drift exploit it scores only MEDIUM, and why).
 
-Think of the reviewer as the review step an agent runs before it signs. An agent proposes a transaction, the reviewer judges it (**parse, heuristics, explanation**), and a human or agent approves. As autonomous agents start moving value on Solana, a deterministic, auditable "second opinion" between *proposed* and *signed* is exactly the missing piece. That is the headline reason I built this PoC the way I did. And with the pre-sign mode below, that "second opinion" now runs on a transaction that does not yet exist on-chain.
+Built as part of the **Superteam Agentic Engineering grant** (200 USDG, Solana Earn).
 
 ---
 
@@ -370,6 +372,6 @@ Most of the big work is shipped, not planned. Pre-sign simulation, token metadat
 
 ## License & contact
 
-Built for the **Superteam Agentic Engineering micro-grant** (~200 USDG, Solana Earn). Repo is public at https://github.com/plutohan/solana-agentic-tx-reviewer.
+Built as part of the **Superteam Agentic Engineering grant** (200 USDG, Solana Earn). Repo is public at https://github.com/plutohan/solana-agentic-tx-reviewer.
 
 <!-- CONTACT / LINKS PLACEHOLDER. Add repository URL, license, maintainer contact, and grant wallet here. -->
